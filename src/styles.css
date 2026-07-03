@@ -1,0 +1,63 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #f4f4f2;
+  color: #171717;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 20px;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.controls-panel {
+  align-self: start;
+}
+
+h1 {
+  margin: 0 0 20px;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+label {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 0.95rem;
+}
+
+.control-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+input {
+  width: 100%;
+}
+
+.stage-panel {
+  min-width: 0;
+}
+
+svg {
+  width: min(100%, 500px);
+  height: auto;
+  aspect-ratio: 1;
+  border: 1px solid #ccc;
+  background: #fafafa;
+}
+
+@media (max-width: 760px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+}

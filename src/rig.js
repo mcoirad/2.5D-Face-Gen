@@ -283,13 +283,23 @@ function solveFeatures(params, pose, structure) {
   const eyeYOffset = params.eyeY - DEFAULTS.eyeY;
   const noseYOffset = (params.noseLength - DEFAULTS.noseLength) * 0.45;
   const mouthScale = params.mouthWidth / DEFAULTS.mouthWidth;
-  const showFarFeature = pose.amount < 0.92;
-  const featureVisibility = [showFarFeature, true];
 
   const eyes = [
-    makeReferenceEye(projectStructure, structure.skull, pose.sign, reference.eyes[0], eyeScale, eyeYOffset, featureVisibility[0]),
-    makeReferenceEye(projectStructure, structure.skull, pose.sign, reference.eyes[1], eyeScale, eyeYOffset, featureVisibility[1])
+    makeReferenceEye(projectStructure, structure.skull, pose.sign, reference.eyes[0], eyeScale, eyeYOffset, true),
+    makeReferenceEye(projectStructure, structure.skull, pose.sign, reference.eyes[1], eyeScale, eyeYOffset, true)
   ];
+
+  const nostrils = makeNostrils(projectStructure, structure.skull, pose, reference.nose.base, noseYOffset);
+  const nose = {
+    bridge: projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.bridge, 55, eyeYOffset * 0.55),
+    tip: projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.tip, 75, noseYOffset),
+    leftNostril: nostrils.visible,
+    rightNostril: nostrils.hidden
+  };
+  const featureVisibility = solveFeatureVisibilityFromNose(pose, eyes, nose.tip);
+  eyes.forEach((eye, index) => {
+    eye.visible = featureVisibility[index];
+  });
 
   const browY = reference.eyes[0].cy * structure.skull.ry + structure.skull.cy - 30 + eyeYOffset;
   const browX = [
@@ -301,14 +311,6 @@ function solveFeatures(params, pose, structure) {
     makeBrow(projectStructure, pose.sign, browX[0], browY, params.eyeTilt, 1, featureVisibility[0], browTiltDirections[0]),
     makeBrow(projectStructure, -pose.sign, browX[1], browY, params.eyeTilt, 1, featureVisibility[1], browTiltDirections[1])
   ];
-
-  const nostrils = makeNostrils(projectStructure, structure.skull, pose, reference.nose.base, noseYOffset);
-  const nose = {
-    bridge: projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.bridge, 55, eyeYOffset * 0.55),
-    tip: projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.tip, 75, noseYOffset),
-    leftNostril: nostrils.visible,
-    rightNostril: nostrils.hidden
-  };
 
   const mouth = {
     left: projectMouthPoint(projectStructure, structure.skull, pose.sign, reference.mouth.left, reference.mouth.mid, mouthScale, 45, params.smile * 0.15),
@@ -322,6 +324,17 @@ function solveFeatures(params, pose, structure) {
     nose,
     mouth
   };
+}
+
+function solveFeatureVisibilityFromNose(pose, eyes, noseTip) {
+  const farEyeIsOccluded = pose.sign < 0
+    ? noseTip.x > eyes[0].center.x
+    : noseTip.x < eyes[0].center.x;
+
+  return [
+    !farEyeIsOccluded,
+    true
+  ];
 }
 
 function solveHelmet(params, pose, structure, features) {

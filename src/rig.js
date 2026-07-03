@@ -154,7 +154,10 @@ function solveHead(params, pose) {
     ry: reference.lowerFace.ry * skull.ry * (params.lowerFaceHeight / DEFAULTS.lowerFaceHeight),
     z: 24
   };
-  const outlineReference = interpolateOutlineLandmarks(params.outlineLandmarks ?? defaultOutlineLandmarks, pose.amount);
+  const outlineReference = interpolateOutlineLandmarks(
+    transformOutlineGapRatios(params.outlineLandmarks ?? defaultOutlineLandmarks, params),
+    pose.amount
+  );
 
   const skullGuide = sampleEllipse(projectStructure, skull, 48);
   const lowerFaceGuide = sampleEllipse(projectStructure, lowerFace, 48);
@@ -582,6 +585,62 @@ function interpolateOutlineLandmarks(outlineLandmarks, amount) {
   }
 
   return blendOutlineLandmarks(outlineLandmarks.threeQuarter, outlineLandmarks.side, (amount - 0.5) / 0.5);
+}
+
+function transformOutlineGapRatios(outlineLandmarks, params) {
+  return {
+    front: transformOutlinePoseGapRatios(outlineLandmarks.front, params),
+    threeQuarter: transformOutlinePoseGapRatios(outlineLandmarks.threeQuarter, params),
+    side: transformOutlinePoseGapRatios(outlineLandmarks.side, params)
+  };
+}
+
+function transformOutlinePoseGapRatios(outlinePose, params) {
+  const lower = outlinePose.lower.map(point => ({ ...point }));
+  const [startTemple, endTemple] = transformTemplePoints(
+    outlinePose.startTemple,
+    outlinePose.endTemple,
+    params.outlineArcGap
+  );
+  const endTempleAngle = angleForCirclePointDegrees(endTemple);
+  const startTempleAngle = angleForCirclePointDegrees(startTemple);
+  const baseLower1 = lower[0].angle;
+  const baseLower2 = lower[1].angle;
+  const baseLower4 = lower[3].angle;
+  const baseLower5 = lower[4].angle;
+
+  lower[0].angle = endTempleAngle + (baseLower1 - endTempleAngle) * params.outlineOuterGap;
+  lower[4].angle = startTempleAngle + (baseLower5 - startTempleAngle) * params.outlineOuterGap;
+  lower[1].angle = lower[0].angle + (baseLower2 - baseLower1) * params.outlineInnerGap;
+  lower[3].angle = lower[4].angle + (baseLower4 - baseLower5) * params.outlineInnerGap;
+
+  return {
+    startTemple,
+    endTemple,
+    lower
+  };
+}
+
+function transformTemplePoints(startPoint, endPoint, ratio) {
+  const startAngle = angleForCirclePoint(startPoint);
+  let endAngle = angleForCirclePoint(endPoint);
+
+  if (endAngle <= startAngle) {
+    endAngle += Math.PI * 2;
+  }
+
+  const midpoint = (startAngle + endAngle) / 2;
+  const start = midpoint + (startAngle - midpoint) * ratio;
+  const end = midpoint + (endAngle - midpoint) * ratio;
+
+  return [
+    [Math.cos(start), Math.sin(start)],
+    [Math.cos(end), Math.sin(end)]
+  ];
+}
+
+function angleForCirclePointDegrees(point) {
+  return angleForCirclePoint(point) * 180 / Math.PI;
 }
 
 function blendReferencePose(fromPose, toPose, amount) {

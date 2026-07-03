@@ -40,8 +40,18 @@ label {
   margin-bottom: 4px;
 }
 
-input {
+input[type="range"] {
   width: 100%;
+}
+
+.toggle-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toggle-control input {
+  width: auto;
 }
 
 .stage-panel {

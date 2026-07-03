@@ -1,6 +1,5 @@
 import {
   clamp,
-  createHeadProjector,
   createProjector,
   lerp,
   poseSign,
@@ -8,7 +7,6 @@ import {
 } from "./geometry.js";
 
 const FACE_CENTER_Y = 10;
-const BASE_EYE_Y = -35;
 
 export function solveFaceRig(params) {
   const yaw = clamp(params.yaw, -1, 1);
@@ -20,104 +18,123 @@ export function solveFaceRig(params) {
   const turn = smoothstep(0, 1, pose.amount);
   const profile = smoothstep(0.58, 1, pose.amount);
   const project = createProjector(params, pose);
-  const projectHead = createHeadProjector(params, pose);
 
-  const featureYOffset = params.eyeY - BASE_EYE_Y;
-  const featureOffsets = {
-    eye: featureYOffset,
-    brow: featureYOffset,
-    nose: featureYOffset * 0.55,
-    mouth: featureYOffset * 0.25
-  };
+  const head = solveHead(params, pose, turn, profile);
 
   return {
+    showGuides: params.showGuides,
     pose: {
       ...pose,
       turn,
       profile
     },
-    head: solveHead(params, pose, profile, projectHead),
-    features: solveFeatures(params, pose, turn, profile, project, featureOffsets),
+    head,
+    features: solveFeatures(params, pose, turn, profile, project, head.structure),
     visibility: solveVisibility(pose.amount)
   };
 }
 
-function solveHead(params, pose, profile, projectHead) {
-  const halfWidth = params.faceWidth / 2;
-  const halfHeight = params.faceHeight / 2;
-  const halfChin = params.chinWidth / 2;
-  const jawWidth = Math.max(halfChin + 18, halfWidth * 0.45);
-  const divideRatio = clamp(params.sphereDivide / halfHeight, -0.65, 0.65);
-  const divideY = FACE_CENTER_Y + halfHeight * divideRatio;
-  const lowerSpan = FACE_CENTER_Y + halfHeight - divideY;
-  const rightTheta = Math.asin(divideRatio);
-  const leftTheta = -Math.PI - rightTheta;
-  const domeSegments = 22;
-  const dome = [];
-  const backExtension = halfWidth * 1.15 * profile;
-  const backDepth = halfWidth * 0.95 * profile;
-
-  function outlinePoint(x, y, z = 0) {
-    if (x * pose.sign <= 0) {
-      return projectHead(x, y, z);
-    }
-
-    const backWeight = lerp(0.62, 1, clamp(Math.abs(x) / halfWidth, 0, 1));
-    return projectHead(
-      x + pose.sign * backExtension * backWeight,
-      y,
-      z - backDepth * backWeight
-    );
-  }
-
-  for (let i = 0; i <= domeSegments; i += 1) {
-    const t = i / domeSegments;
-    const theta = leftTheta + (rightTheta - leftTheta) * t;
-    const z = -5 * Math.max(0, -Math.sin(theta));
-
-    dome.push(outlinePoint(
-      pose.sign * halfWidth * Math.cos(theta),
-      FACE_CENTER_Y + halfHeight * Math.sin(theta),
-      z
-    ));
-  }
-
-  const faceSide = dome[dome.length - 1];
-  const backSide = dome[0];
-  const faceJaw = outlinePoint(pose.sign * lerp(jawWidth, jawWidth * 0.88, profile), divideY + lowerSpan * 0.72, 24);
-  const backJaw = outlinePoint(-pose.sign * lerp(jawWidth, jawWidth * 0.72, profile), divideY + lowerSpan * 0.72, 24);
-  const faceChin = outlinePoint(pose.sign * lerp(halfChin, halfChin + 10, profile), FACE_CENTER_Y + halfHeight, 34);
-  const backChin = outlinePoint(-pose.sign * lerp(halfChin, halfChin * 0.45, profile), FACE_CENTER_Y + halfHeight, 34);
-
-  const lower = {
-    variant: "continuous",
-    faceCheekControl: outlinePoint(pose.sign * lerp(halfWidth * 0.96, halfWidth * 0.82, profile), divideY + lowerSpan * 0.22, 12),
-    faceJawControl: outlinePoint(pose.sign * lerp(jawWidth + 10, jawWidth * 0.92, profile), divideY + lowerSpan * 0.58, 22),
-    faceJaw,
-    faceChin,
-    backChin,
-    backJaw,
-    backJawControl: outlinePoint(-pose.sign * lerp(jawWidth + 10, jawWidth * 0.78, profile), divideY + lowerSpan * 0.58, 22),
-    backCheekControl: outlinePoint(-pose.sign * lerp(halfWidth * 0.96, halfWidth * 0.72, profile), divideY + lowerSpan * 0.22, 12)
+function solveHead(params, pose, turn, profile) {
+  const projectStructure = createStructureProjector();
+  const skull = {
+    cx: 0,
+    cy: FACE_CENTER_Y,
+    rx: params.faceWidth / 2,
+    ry: params.faceHeight / 2,
+    z: 0
+  };
+  const lowerFace = {
+    cx: -pose.sign * params.lowerFaceSideShift * turn,
+    cy: FACE_CENTER_Y + params.lowerFaceY,
+    rx: lerp(params.lowerFaceWidth / 2, params.lowerFaceHeight / 2, profile),
+    ry: params.lowerFaceHeight / 2,
+    z: 24
   };
 
+  const joinY = clamp(
+    lowerFace.cy - lowerFace.ry * 0.9,
+    skull.cy - skull.ry * 0.15,
+    skull.cy + skull.ry * 0.72
+  );
+  const joinRatio = clamp((joinY - skull.cy) / skull.ry, -0.95, 0.95);
+  const skullRightTheta = Math.asin(joinRatio);
+  const skullLeftTheta = -Math.PI - skullRightTheta;
+  const lowerJoinRatio = clamp((joinY - lowerFace.cy) / lowerFace.ry, -0.95, 0.95);
+  const lowerRightTheta = Math.asin(lowerJoinRatio);
+  const lowerLeftTheta = Math.PI - lowerRightTheta;
+
+  const skullGuide = sampleEllipse(projectStructure, skull, 48);
+  const lowerFaceGuide = sampleEllipse(projectStructure, lowerFace, 48);
+  const upperOutline = sampleEllipseArc(projectStructure, skull, skullLeftTheta, skullRightTheta, 24);
+  const lowerOutline = sampleEllipseArc(projectStructure, lowerFace, lowerRightTheta, lowerLeftTheta, 24);
+
+  const outline = [
+    ...upperOutline,
+    ...lowerOutline
+  ];
+
   return {
-    dome,
-    backSide,
-    faceSide,
-    lower
+    guides: {
+      skull: skullGuide,
+      lowerFace: lowerFaceGuide
+    },
+    outline,
+    structure: {
+      skull,
+      lowerFace,
+      lowerFaceBottomY: lowerFace.cy + lowerFace.ry,
+      featureCenterX: lowerFace.cx * 0.32
+    }
   };
 }
 
-function solveFeatures(params, pose, turn, profile, project, featureOffsets) {
+function createStructureProjector() {
+  return function projectStructure(x, y, z = 0) {
+    return {
+      x: 250 + x,
+      y: 250 + y,
+      scale: 1,
+      depth: z
+    };
+  };
+}
+
+function sampleEllipse(project, ellipse, segments) {
+  return sampleEllipseArc(project, ellipse, 0, Math.PI * 2, segments);
+}
+
+function sampleEllipseArc(project, ellipse, startTheta, endTheta, segments) {
+  const points = [];
+
+  for (let i = 0; i <= segments; i += 1) {
+    const t = i / segments;
+    const theta = lerp(startTheta, endTheta, t);
+
+    points.push(project(
+      ellipse.cx + ellipse.rx * Math.cos(theta),
+      ellipse.cy + ellipse.ry * Math.sin(theta),
+      ellipse.z
+    ));
+  }
+
+  return points;
+}
+
+function solveFeatures(params, pose, turn, profile, project, structure) {
   const nearSide = pose.sign;
   const farSide = -pose.sign;
   const eyeSize = params.eyeSize;
-  const nearEyeX = nearSide * lerp(params.eyeSpacing, 42, turn);
-  const farEyeX = farSide * lerp(params.eyeSpacing, 18, turn);
-  const noseBridgeY = -10 + featureOffsets.nose;
-  const noseBaseY = params.noseLength + featureOffsets.nose;
-  const mouthY = 85 + featureOffsets.mouth;
+  const featureCenterX = structure.featureCenterX;
+  const featureSpan = structure.lowerFaceBottomY - params.eyeY;
+  const noseLengthOffset = (params.noseLength - 48) * 0.45;
+  const nearEyeX = featureCenterX + nearSide * lerp(params.eyeSpacing, 42, turn);
+  const farEyeX = featureCenterX + farSide * lerp(params.eyeSpacing, 18, turn);
+  const browY = params.eyeY - 30;
+  const noseX = featureCenterX + pose.sign * lerp(0, 30, turn);
+  const mouthX = featureCenterX + pose.sign * lerp(0, 18, turn);
+  const noseBridgeY = params.eyeY + featureSpan * 0.3;
+  const noseBaseY = params.eyeY + featureSpan * 0.58 + noseLengthOffset;
+  const mouthY = params.eyeY + featureSpan * 0.82;
   const showFarFeature = pose.amount < 0.92;
 
   const eyes = [
@@ -126,21 +143,21 @@ function solveFeatures(params, pose, turn, profile, project, featureOffsets) {
   ];
 
   const brows = [
-    makeBrow(project, nearSide, nearEyeX, -65 + featureOffsets.brow, params.eyeTilt, lerp(1, 0.82, profile), true),
-    makeBrow(project, farSide, farEyeX, -65 + featureOffsets.brow + turn * 3, params.eyeTilt, lerp(1, 0.45, turn), showFarFeature)
+    makeBrow(project, nearSide, nearEyeX, browY, params.eyeTilt, lerp(1, 0.82, profile), true),
+    makeBrow(project, farSide, farEyeX, browY + turn * 3, params.eyeTilt, lerp(1, 0.45, turn), showFarFeature)
   ];
 
   const nose = {
-    bridge: project(0, noseBridgeY, 55),
-    tip: project(0, noseBaseY, 75),
-    leftNostril: project(-14, noseBaseY + 10, 58),
-    rightNostril: project(14, noseBaseY + 10, 58)
+    bridge: project(noseX, noseBridgeY, 55),
+    tip: project(noseX + pose.sign * lerp(0, 12, turn), noseBaseY, 75),
+    leftNostril: project(noseX - 14, noseBaseY + 10, 58),
+    rightNostril: project(noseX + 14, noseBaseY + 10, 58)
   };
 
   const mouth = {
-    left: project(-params.mouthWidth / 2, mouthY, 45),
-    right: project(params.mouthWidth / 2, mouthY, 45),
-    mid: project(0, mouthY + params.smile, 60)
+    left: project(mouthX - params.mouthWidth / 2, mouthY, 45),
+    right: project(mouthX + params.mouthWidth / 2, mouthY, 45),
+    mid: project(mouthX, mouthY + params.smile, 60)
   };
 
   return {

@@ -2,6 +2,7 @@ export function renderFaceSvg(rig) {
   return `
     <svg viewBox="0 0 500 500" role="img" aria-label="2.5D anime face preview">
       ${renderHead(rig.head)}
+      ${rig.showGuides ? renderGuides(rig.head.guides) : ""}
       ${rig.features.brows.map(renderBrow).join("")}
       ${rig.features.eyes.map(renderEye).join("")}
       ${renderNose(rig.features.nose)}
@@ -11,14 +12,9 @@ export function renderFaceSvg(rig) {
 }
 
 function renderHead(head) {
-  const d = [
-    ...head.dome.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`),
-    ...renderLowerHeadCommands(head)
-  ].join(" ");
-
   return `
     <path
-      d="${d}"
+      d="${renderPointPath(head.outline)} Z"
       fill="#fff"
       stroke="black"
       stroke-width="4"
@@ -27,17 +23,30 @@ function renderHead(head) {
   `;
 }
 
-function renderLowerHeadCommands(head) {
-  const lower = head.lower;
+function renderGuides(guides) {
+  return `
+    ${renderGuidePath(guides.skull)}
+    ${renderGuidePath(guides.lowerFace)}
+  `;
+}
 
-  return [
-    `C ${lower.faceCheekControl.x} ${lower.faceCheekControl.y} ${lower.faceJawControl.x} ${lower.faceJawControl.y} ${lower.faceJaw.x} ${lower.faceJaw.y}`,
-    `L ${lower.faceChin.x} ${lower.faceChin.y}`,
-    `L ${lower.backChin.x} ${lower.backChin.y}`,
-    `L ${lower.backJaw.x} ${lower.backJaw.y}`,
-    `C ${lower.backJawControl.x} ${lower.backJawControl.y} ${lower.backCheekControl.x} ${lower.backCheekControl.y} ${head.backSide.x} ${head.backSide.y}`,
-    "Z"
-  ];
+function renderGuidePath(points) {
+  return `
+    <path
+      d="${renderPointPath(points)} Z"
+      fill="none"
+      stroke="#8a8a8a"
+      stroke-width="2"
+      stroke-dasharray="7 5"
+      stroke-linejoin="round"
+    />
+  `;
+}
+
+function renderPointPath(points) {
+  return points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+    .join(" ");
 }
 
 function renderBrow(brow) {

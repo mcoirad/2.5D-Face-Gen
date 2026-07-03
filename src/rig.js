@@ -361,9 +361,10 @@ function solveHair(params, pose, structure) {
 }
 
 function makeHairGuides(params, pose, structure) {
-  const center = makeHairGuide(params, pose, structure, 0);
-  const outerLeft = makeHairGuide(params, pose, structure, -1);
-  const outerRight = makeHairGuide(params, pose, structure, 1);
+  const centerHairline = params.hairline * lerp(1, 0.55, params.hairMalePatternBaldnessBias);
+  const center = makeHairGuide(params, pose, structure, 0, centerHairline);
+  const outerLeft = makeHairGuide(params, pose, structure, -1, params.hairline);
+  const outerRight = makeHairGuide(params, pose, structure, 1, params.hairline);
 
   return [
     outerLeft,
@@ -383,13 +384,13 @@ function interpolateHairGuides(startGuide, endGuide, amount) {
   }));
 }
 
-function makeHairGuide(params, pose, structure, sideOffset) {
+function makeHairGuide(params, pose, structure, sideOffset, hairlineAmount) {
   const projectStructure = createStructureProjector(params);
   const { skull } = structure;
   const guideAngle = Math.asin(sideOffset) - pose.yaw * Math.PI / 2;
   const sidePosition = Math.sin(guideAngle);
   const depthPosition = Math.cos(guideAngle);
-  const guideEndTheta = lerp(-Math.PI / 2, 0, params.hairline);
+  const guideEndTheta = lerp(-Math.PI / 2, 0, hairlineAmount);
   const points = [];
 
   for (let i = 0; i <= 8; i += 1) {
@@ -419,6 +420,7 @@ function makeHairStrands(guides, params, pose) {
     const guide = guides[guideIndex];
     const guidePosition = Math.floor(index / guides.length);
     const guideCount = Math.ceil((count - guideIndex) / guides.length);
+    const guideSideWeight = Math.abs(guideIndex - ((guides.length - 1) / 2)) / ((guides.length - 1) / 2);
 
     return makeHairStrand(
       guide,
@@ -426,12 +428,13 @@ function makeHairStrands(guides, params, pose) {
       pose,
       guidePosition,
       Math.max(guideCount, 1),
-      index + guideIndex * 101
+      index + guideIndex * 101,
+      guideSideWeight
     );
   });
 }
 
-function makeHairStrand(guide, params, pose, index, count, randomIndex) {
+function makeHairStrand(guide, params, pose, index, count, randomIndex, guideSideWeight) {
   const t = count === 1 ? 0.2 : lerp(0.04, 0.96, index / (count - 1));
   const anchor = samplePolyline(guide, t);
   const randomSide = seededRandom(randomIndex, 1) < 0.5 ? -1 : 1;
@@ -440,7 +443,8 @@ function makeHairStrand(guide, params, pose, index, count, randomIndex) {
   const side = seededRandom(randomIndex, 6) < smoothstep(0.35, 1, pose.amount)
     ? outwardSide
     : randomSide;
-  const length = params.hairStrandLength * lerp(0.62, 1.38, seededRandom(randomIndex, 2));
+  const bangsLengthMultiplier = lerp(1, 4, params.hairBangsBias * guideSideWeight);
+  const length = params.hairStrandLength * bangsLengthMultiplier * lerp(0.62, 1.38, seededRandom(randomIndex, 2));
   const thickness = params.hairStrandThickness * lerp(0.55, 1.45, seededRandom(randomIndex, 3));
   const curve = params.hairStrandCurve * length * lerp(-0.55, 0.85, seededRandom(randomIndex, 4));
   const splitCurve = seededRandom(randomIndex, 7) < params.hairStrandSplitCurve;

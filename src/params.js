@@ -26,6 +26,8 @@ export const defaultParams = {
   hairStrandSplitCurve: 0,
   hairDownBias: 0.75,
   hairline: 1,
+  hairMalePatternBaldnessBias: 0,
+  hairBangsBias: 0,
   eyeSpacing: 46,
   eyeY: -35,
   eyeSize: 18,
@@ -64,7 +66,9 @@ export const sliderConfig = {
   hairStrandCurve: [0, 1.5, 0.01],
   hairStrandSplitCurve: [0, 1, 0.01],
   hairDownBias: [0, 1, 0.01],
-  hairline: [0.15, 1, 0.01]
+  hairline: [0.15, 1, 0.01],
+  hairMalePatternBaldnessBias: [0, 1, 0.01],
+  hairBangsBias: [0, 1, 0.01]
 };
 
 export const toggleConfig = {

@@ -77,7 +77,9 @@ const controlGroups = [
       "hairStrandCurve",
       "hairStrandSplitCurve",
       "hairDownBias",
-      "hairline"
+      "hairline",
+      "hairMalePatternBaldnessBias",
+      "hairBangsBias"
     ],
     open: true
   },

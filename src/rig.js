@@ -54,13 +54,28 @@ function solveHead(params, pose, profile, projectHead) {
   const leftTheta = -Math.PI - rightTheta;
   const domeSegments = 22;
   const dome = [];
+  const backExtension = halfWidth * 1.15 * profile;
+  const backDepth = halfWidth * 0.95 * profile;
+
+  function outlinePoint(x, y, z = 0) {
+    if (x * pose.sign <= 0) {
+      return projectHead(x, y, z);
+    }
+
+    const backWeight = lerp(0.62, 1, clamp(Math.abs(x) / halfWidth, 0, 1));
+    return projectHead(
+      x + pose.sign * backExtension * backWeight,
+      y,
+      z - backDepth * backWeight
+    );
+  }
 
   for (let i = 0; i <= domeSegments; i += 1) {
     const t = i / domeSegments;
     const theta = leftTheta + (rightTheta - leftTheta) * t;
     const z = -5 * Math.max(0, -Math.sin(theta));
 
-    dome.push(projectHead(
+    dome.push(outlinePoint(
       pose.sign * halfWidth * Math.cos(theta),
       FACE_CENTER_Y + halfHeight * Math.sin(theta),
       z
@@ -69,21 +84,21 @@ function solveHead(params, pose, profile, projectHead) {
 
   const faceSide = dome[dome.length - 1];
   const backSide = dome[0];
-  const faceJaw = projectHead(pose.sign * lerp(jawWidth, jawWidth * 0.88, profile), divideY + lowerSpan * 0.72, 24);
-  const backJaw = projectHead(-pose.sign * lerp(jawWidth, jawWidth * 0.72, profile), divideY + lowerSpan * 0.72, 24);
-  const faceChin = projectHead(pose.sign * lerp(halfChin, halfChin + 10, profile), FACE_CENTER_Y + halfHeight, 34);
-  const backChin = projectHead(-pose.sign * lerp(halfChin, halfChin * 0.45, profile), FACE_CENTER_Y + halfHeight, 34);
+  const faceJaw = outlinePoint(pose.sign * lerp(jawWidth, jawWidth * 0.88, profile), divideY + lowerSpan * 0.72, 24);
+  const backJaw = outlinePoint(-pose.sign * lerp(jawWidth, jawWidth * 0.72, profile), divideY + lowerSpan * 0.72, 24);
+  const faceChin = outlinePoint(pose.sign * lerp(halfChin, halfChin + 10, profile), FACE_CENTER_Y + halfHeight, 34);
+  const backChin = outlinePoint(-pose.sign * lerp(halfChin, halfChin * 0.45, profile), FACE_CENTER_Y + halfHeight, 34);
 
   const lower = {
     variant: "continuous",
-    faceCheekControl: projectHead(pose.sign * lerp(halfWidth * 0.96, halfWidth * 0.82, profile), divideY + lowerSpan * 0.22, 12),
-    faceJawControl: projectHead(pose.sign * lerp(jawWidth + 10, jawWidth * 0.92, profile), divideY + lowerSpan * 0.58, 22),
+    faceCheekControl: outlinePoint(pose.sign * lerp(halfWidth * 0.96, halfWidth * 0.82, profile), divideY + lowerSpan * 0.22, 12),
+    faceJawControl: outlinePoint(pose.sign * lerp(jawWidth + 10, jawWidth * 0.92, profile), divideY + lowerSpan * 0.58, 22),
     faceJaw,
     faceChin,
     backChin,
     backJaw,
-    backJawControl: projectHead(-pose.sign * lerp(jawWidth + 10, jawWidth * 0.78, profile), divideY + lowerSpan * 0.58, 22),
-    backCheekControl: projectHead(-pose.sign * lerp(halfWidth * 0.96, halfWidth * 0.72, profile), divideY + lowerSpan * 0.22, 12)
+    backJawControl: outlinePoint(-pose.sign * lerp(jawWidth + 10, jawWidth * 0.78, profile), divideY + lowerSpan * 0.58, 22),
+    backCheekControl: outlinePoint(-pose.sign * lerp(halfWidth * 0.96, halfWidth * 0.72, profile), divideY + lowerSpan * 0.22, 12)
   };
 
   return {

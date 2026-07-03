@@ -74,21 +74,45 @@ function renderPointPath(points) {
 }
 
 function renderHair(hair) {
-  if (!hair?.partGuide?.length) {
+  if (!hair) {
     return "";
   }
 
   return `
+    ${hair.strands?.map(renderHairStrand).join("") ?? ""}
+    ${renderHairGuides(hair.guides)}
+  `;
+}
+
+function renderHairStrand(strand) {
+  return `
     <path
-      d="${renderPointPath(hair.partGuide)}"
-      fill="none"
-      stroke="#2f6f73"
-      stroke-width="2"
-      stroke-linecap="round"
+      d="M ${strand.baseLeft.x} ${strand.baseLeft.y} C ${strand.controlLeft.x} ${strand.controlLeft.y} ${strand.controlLeft.x} ${strand.controlLeft.y} ${strand.tip.x} ${strand.tip.y} C ${strand.controlRight.x} ${strand.controlRight.y} ${strand.controlRight.x} ${strand.controlRight.y} ${strand.baseRight.x} ${strand.baseRight.y} Z"
+      fill="${strand.fill}"
+      stroke="${strand.stroke}"
+      stroke-width="1"
       stroke-linejoin="round"
-      stroke-dasharray="5 5"
+      opacity="${strand.opacity}"
     />
   `;
+}
+
+function renderHairGuides(guides = []) {
+  if (!guides.length) {
+    return "";
+  }
+
+  return guides.map(guide => `
+      <path
+        d="${renderPointPath(guide)}"
+        fill="none"
+        stroke="#2f6f73"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-dasharray="5 5"
+      />
+    `).join("");
 }
 
 function renderBrow(brow) {

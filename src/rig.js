@@ -350,36 +350,198 @@ function solveFeatureVisibilityFromNose(pose, eyes, noseTip) {
 }
 
 function solveHair(params, pose, structure) {
+  const guides = makeHairGuides(params, pose, structure);
+
   return {
-    partGuide: params.showHairPartGuide
-      ? makeHairPartGuide(params, pose, structure)
-      : []
+    strands: params.showHairStrands
+      ? makeHairStrands(guides, params, pose)
+      : [],
+    guides: params.showHairPartGuide ? guides : []
   };
 }
 
-function makeHairPartGuide(params, pose, structure) {
+function makeHairGuides(params, pose, structure) {
+  const center = makeHairGuide(params, pose, structure, 0);
+  const outerLeft = makeHairGuide(params, pose, structure, -1);
+  const outerRight = makeHairGuide(params, pose, structure, 1);
+
+  return [
+    outerLeft,
+    interpolateHairGuides(outerLeft, center, 0.5),
+    center,
+    interpolateHairGuides(center, outerRight, 0.5),
+    outerRight
+  ];
+}
+
+function interpolateHairGuides(startGuide, endGuide, amount) {
+  return startGuide.map((point, index) => ({
+    x: lerp(point.x, endGuide[index].x, amount),
+    y: lerp(point.y, endGuide[index].y, amount),
+    scale: lerp(point.scale, endGuide[index].scale, amount),
+    depth: lerp(point.depth, endGuide[index].depth, amount)
+  }));
+}
+
+function makeHairGuide(params, pose, structure, sideOffset) {
   const projectStructure = createStructureProjector(params);
   const { skull } = structure;
-  const surfaceAngle = -pose.yaw * Math.PI * 0.42;
-  const x = Math.sin(surfaceAngle) * skull.rx * 0.72;
-  const z = Math.cos(surfaceAngle) * 72;
+  const guideAngle = Math.asin(sideOffset) - pose.yaw * Math.PI / 2;
+  const sidePosition = Math.sin(guideAngle);
+  const depthPosition = Math.cos(guideAngle);
+  const guideEndTheta = lerp(-Math.PI / 2, 0, params.hairline);
   const points = [];
 
   for (let i = 0; i <= 8; i += 1) {
     const t = i / 8;
-    const normalizedY = lerp(-1.04, 0.68, t);
-    const widthAtY = Math.sqrt(Math.max(0, 1 - normalizedY ** 2));
-    const curveX = x * widthAtY;
-    const curveZ = z * widthAtY;
+    const theta = lerp(-Math.PI / 2, guideEndTheta, t);
+    const curveX = Math.cos(theta) * skull.rx * sidePosition;
 
     points.push(projectStructure(
       curveX,
-      skull.cy + normalizedY * skull.ry,
-      curveZ
+      skull.cy + Math.sin(theta) * skull.ry,
+      72 * depthPosition
     ));
   }
 
   return points;
+}
+
+function makeHairStrands(guides, params, pose) {
+  const count = Math.round(params.hairStrandCount);
+
+  if (count <= 0 || !guides.length) {
+    return [];
+  }
+
+  return Array.from({ length: count }, (_, index) => {
+    const guideIndex = index % guides.length;
+    const guide = guides[guideIndex];
+    const guidePosition = Math.floor(index / guides.length);
+    const guideCount = Math.ceil((count - guideIndex) / guides.length);
+
+    return makeHairStrand(
+      guide,
+      params,
+      pose,
+      guidePosition,
+      Math.max(guideCount, 1),
+      index + guideIndex * 101
+    );
+  });
+}
+
+function makeHairStrand(guide, params, pose, index, count, randomIndex) {
+  const t = count === 1 ? 0.2 : lerp(0.04, 0.96, index / (count - 1));
+  const anchor = samplePolyline(guide, t);
+  const randomSide = seededRandom(randomIndex, 1) < 0.5 ? -1 : 1;
+  const guideSide = Math.sign(anchor.point.x - 250);
+  const outwardSide = guideSide === 0 ? randomSide : -guideSide;
+  const side = seededRandom(randomIndex, 6) < smoothstep(0.35, 1, pose.amount)
+    ? outwardSide
+    : randomSide;
+  const length = params.hairStrandLength * lerp(0.62, 1.38, seededRandom(randomIndex, 2));
+  const thickness = params.hairStrandThickness * lerp(0.55, 1.45, seededRandom(randomIndex, 3));
+  const curve = params.hairStrandCurve * length * lerp(-0.55, 0.85, seededRandom(randomIndex, 4));
+  const splitCurve = seededRandom(randomIndex, 7) < params.hairStrandSplitCurve;
+  const frontDownWeight = (1 - t) * (1 - params.hairDownBias) * 0.55;
+  const downWeight = clamp(params.hairDownBias + frontDownWeight, 0, 1);
+  const wildVertical = lerp(-0.55, 0.4, seededRandom(randomIndex, 5)) * (1 - params.hairDownBias) * t;
+  const outward = {
+    x: -anchor.tangent.y * side,
+    y: anchor.tangent.x * side
+  };
+  const direction = normalizePoint({
+    x: outward.x * (1 - downWeight),
+    y: outward.y * (1 - downWeight) + downWeight + wildVertical
+  });
+  const curveNormal = {
+    x: -direction.y,
+    y: direction.x
+  };
+  const baseLeft = offsetPoint(anchor.point, anchor.tangent, -thickness / 2);
+  const baseRight = offsetPoint(anchor.point, anchor.tangent, thickness / 2);
+  const tip = offsetPoint(anchor.point, direction, length);
+  const curveOffset = {
+    x: curveNormal.x * curve,
+    y: curveNormal.y * curve
+  };
+  const splitCurveOffset = {
+    x: anchor.tangent.x * Math.abs(curve),
+    y: anchor.tangent.y * Math.abs(curve)
+  };
+  const controlLeftOffset = splitCurve
+    ? { x: -splitCurveOffset.x, y: -splitCurveOffset.y }
+    : curveOffset;
+  const controlRightOffset = splitCurve
+    ? splitCurveOffset
+    : curveOffset;
+
+  return {
+    baseLeft,
+    baseRight,
+    tip,
+    controlLeft: addPoints(
+      offsetPoint(baseLeft, direction, length * 0.48),
+      controlLeftOffset
+    ),
+    controlRight: addPoints(
+      offsetPoint(baseRight, direction, length * 0.48),
+      controlRightOffset
+    ),
+    fill: "#26211c",
+    stroke: "#17130f",
+    opacity: 0.92
+  };
+}
+
+function samplePolyline(points, t) {
+  const scaled = clamp(t, 0, 1) * (points.length - 1);
+  const index = Math.min(Math.floor(scaled), points.length - 2);
+  const localT = scaled - index;
+  const start = points[index];
+  const end = points[index + 1];
+  const tangent = normalizePoint({
+    x: end.x - start.x,
+    y: end.y - start.y
+  });
+
+  return {
+    point: {
+      x: lerp(start.x, end.x, localT),
+      y: lerp(start.y, end.y, localT)
+    },
+    tangent
+  };
+}
+
+function normalizePoint(point) {
+  const length = Math.hypot(point.x, point.y) || 1;
+
+  return {
+    x: point.x / length,
+    y: point.y / length
+  };
+}
+
+function offsetPoint(point, direction, distance) {
+  return {
+    x: point.x + direction.x * distance,
+    y: point.y + direction.y * distance
+  };
+}
+
+function addPoints(first, second) {
+  return {
+    x: first.x + second.x,
+    y: first.y + second.y
+  };
+}
+
+function seededRandom(index, salt) {
+  const value = Math.sin(index * 127.1 + salt * 311.7) * 43758.5453123;
+
+  return value - Math.floor(value);
 }
 
 function spaceReferenceEyes(referenceEyes, spacingScale) {

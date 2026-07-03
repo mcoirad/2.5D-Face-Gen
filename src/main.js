@@ -68,7 +68,17 @@ const controlGroups = [
   },
   {
     title: "Hair",
-    keys: ["showHairPartGuide"],
+    keys: [
+      "showHairStrands",
+      "showHairPartGuide",
+      "hairStrandCount",
+      "hairStrandLength",
+      "hairStrandThickness",
+      "hairStrandCurve",
+      "hairStrandSplitCurve",
+      "hairDownBias",
+      "hairline"
+    ],
     open: true
   },
   {

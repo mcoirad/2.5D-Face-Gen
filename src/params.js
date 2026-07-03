@@ -17,7 +17,15 @@ export const defaultParams = {
   showHelmetFarCheekGuard: true,
   showHelmetNearCheekGuard: true,
   showHelmetNoseGuard: true,
+  showHairStrands: true,
   showHairPartGuide: true,
+  hairStrandCount: 10,
+  hairStrandLength: 85,
+  hairStrandThickness: 8,
+  hairStrandCurve: 0.55,
+  hairStrandSplitCurve: 0,
+  hairDownBias: 0.75,
+  hairline: 1,
   eyeSpacing: 46,
   eyeY: -35,
   eyeSize: 18,
@@ -49,7 +57,14 @@ export const sliderConfig = {
   eyeTilt: [-0.6, 0.6, 0.01],
   noseLength: [20, 80, 1],
   mouthWidth: [30, 110, 1],
-  smile: [-35, 35, 1]
+  smile: [-35, 35, 1],
+  hairStrandCount: [0, 100, 1],
+  hairStrandLength: [30, 150, 1],
+  hairStrandThickness: [2, 40, 1],
+  hairStrandCurve: [0, 1.5, 0.01],
+  hairStrandSplitCurve: [0, 1, 0.01],
+  hairDownBias: [0, 1, 0.01],
+  hairline: [0.15, 1, 0.01]
 };
 
 export const toggleConfig = {
@@ -60,5 +75,6 @@ export const toggleConfig = {
   showHelmetFarCheekGuard: true,
   showHelmetNearCheekGuard: true,
   showHelmetNoseGuard: true,
+  showHairStrands: true,
   showHairPartGuide: true
 };

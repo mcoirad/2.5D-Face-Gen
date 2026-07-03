@@ -352,8 +352,7 @@ function solveHelmet(params, pose, structure, features) {
     params.showHelmetFacePlate
       ? {
           name: "face-plate",
-          points: makeHelmetFacePlate(projectStructure, skull, pose),
-          cutouts: makeHelmetEyeOpenings(projectStructure, features.eyes, pose, skull),
+          points: makeHelmetFacePlate(projectStructure, skull, pose, features.eyes),
           fill: "#d1a04b",
           stroke: "black",
           opacity: 0.96
@@ -401,8 +400,34 @@ function makeHelmetShell(project, skull, pose) {
   ];
 }
 
-function makeHelmetFacePlate(project, skull, pose) {
-  return sampleHelmetSkullArc(project, skull, pose, 0, 360, 54, 16, 0, 46);
+function makeHelmetFacePlate(project, skull, pose, eyes) {
+  const slots = makeHelmetEyeOpenings(project, eyes, pose, skull);
+
+  if (!slots.length) {
+    return sampleHelmetSkullArc(project, skull, pose, 0, 360, 54, 16, 0, 46);
+  }
+
+  const path = [];
+  const boundarySteps = 72;
+  const sortedSlots = slots.sort((a, b) => a.entryTheta - b.entryTheta);
+  let slotIndex = 0;
+
+  for (let i = 0; i <= boundarySteps; i += 1) {
+    const theta = i / boundarySteps * Math.PI * 2;
+    let insertedSlot = false;
+
+    while (slotIndex < sortedSlots.length && theta >= sortedSlots[slotIndex].entryTheta) {
+      path.push(...sortedSlots[slotIndex].path);
+      insertedSlot = true;
+      slotIndex += 1;
+    }
+
+    if (!insertedSlot && !sortedSlots.some(slot => theta > slot.entryTheta && theta < slot.exitTheta)) {
+      path.push(helmetFacePlatePoint(project, skull, theta));
+    }
+  }
+
+  return path;
 }
 
 function makeHelmetEyeOpenings(project, eyes, pose, skull) {
@@ -416,26 +441,45 @@ function makeHelmetEyeOpening(project, eye, pose, skull) {
   const width = Math.max(34, eye.rx * 2.35 * profileNarrowing);
   const height = Math.max(20, eye.ry * 1.75);
   const { x, y } = eye.center;
-  const bottomLeft = helmetFacePlateBottomPoint(project, skull, x - width * 0.34);
-  const bottomRight = helmetFacePlateBottomPoint(project, skull, x + width * 0.34);
+  const leftX = x - width * 0.34;
+  const rightX = x + width * 0.34;
+  const entry = helmetFacePlateBoundaryPoint(project, skull, rightX);
+  const exit = helmetFacePlateBoundaryPoint(project, skull, leftX);
 
-  return [
-    { x: x - width * 0.5, y },
-    { x: x - width * 0.32, y: y - height * 0.5 },
-    { x: x + width * 0.32, y: y - height * 0.5 },
-    { x: x + width * 0.5, y },
-    bottomRight,
-    bottomLeft
-  ];
+  return {
+    entryTheta: entry.theta,
+    exitTheta: exit.theta,
+    path: [
+      entry.point,
+      { x: x + width * 0.5, y },
+      { x: x + width * 0.32, y: y - height * 0.5 },
+      { x: x - width * 0.32, y: y - height * 0.5 },
+      { x: x - width * 0.5, y },
+      exit.point
+    ]
+  };
 }
 
-function helmetFacePlateBottomPoint(project, skull, screenX) {
+function helmetFacePlateBoundaryPoint(project, skull, screenX) {
+  const rx = skull.rx + 16;
+  const x = clamp(screenX - 250, -rx * 0.96, rx * 0.96);
+  const theta = Math.acos(x / rx);
+
+  return {
+    theta,
+    point: helmetFacePlatePoint(project, skull, theta)
+  };
+}
+
+function helmetFacePlatePoint(project, skull, theta) {
   const rx = skull.rx + 16;
   const ry = skull.ry + 16;
-  const x = clamp(screenX - 250, -rx * 0.96, rx * 0.96);
-  const y = skull.cy + Math.sqrt(1 - (x / rx) ** 2) * ry;
 
-  return project(x, y, 46);
+  return project(
+    Math.cos(theta) * rx,
+    skull.cy + Math.sin(theta) * ry,
+    46
+  );
 }
 
 function makeHelmetCheekGuard(project, skull, lowerFace, pose, side) {

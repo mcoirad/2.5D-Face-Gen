@@ -361,33 +361,17 @@ function solveHair(params, pose, structure) {
 }
 
 function makeHairGuides(params, pose, structure) {
-  const centerHairline = params.hairline * lerp(1, 0.55, params.hairMalePatternBaldnessBias);
-  const center = makeHairGuide(params, pose, structure, 0, centerHairline);
-  const outerLeft = makeHairGuide(params, pose, structure, -1, params.hairline);
-  const outerRight = makeHairGuide(params, pose, structure, 1, params.hairline);
+  return [-1, -0.5, 0, 0.5, 1].map(sideOffset => {
+    const hairlineAmount = params.hairline * lerp(1, 0.55 + 0.45 * Math.abs(sideOffset), params.hairMalePatternBaldnessBias);
 
-  return [
-    outerLeft,
-    interpolateHairGuides(outerLeft, center, 0.5),
-    center,
-    interpolateHairGuides(center, outerRight, 0.5),
-    outerRight
-  ];
-}
-
-function interpolateHairGuides(startGuide, endGuide, amount) {
-  return startGuide.map((point, index) => ({
-    x: lerp(point.x, endGuide[index].x, amount),
-    y: lerp(point.y, endGuide[index].y, amount),
-    scale: lerp(point.scale, endGuide[index].scale, amount),
-    depth: lerp(point.depth, endGuide[index].depth, amount)
-  }));
+    return makeHairGuide(params, pose, structure, sideOffset, hairlineAmount);
+  });
 }
 
 function makeHairGuide(params, pose, structure, sideOffset, hairlineAmount) {
   const projectStructure = createStructureProjector(params);
   const { skull } = structure;
-  const guideAngle = Math.asin(sideOffset) - pose.yaw * Math.PI / 2;
+  const guideAngle = sideOffset * Math.PI / 2 - pose.yaw * Math.PI / 2;
   const sidePosition = Math.sin(guideAngle);
   const depthPosition = Math.cos(guideAngle);
   const guideEndTheta = lerp(-Math.PI / 2, 0, hairlineAmount);

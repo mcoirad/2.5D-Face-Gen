@@ -70,43 +70,42 @@ const REFERENCE_POSES = {
   }
 };
 
-const OUTLINE_LANDMARKS = {
+export const defaultOutlineLandmarks = {
   front: {
     startTemple: [-0.95, 0.45],
     endTemple: [0.95, 0.45],
     lower: [
-      [0.94, 0.78],
-      [0.55, 1.34],
-      [0.02, 1.58],
-      [-0.55, 1.34],
-      [-0.94, 0.78]
+      { angle: -15, offsetX: 0, offsetY: 0 },
+      { angle: 45, offsetX: 0, offsetY: 0 },
+      { angle: 88, offsetX: 0, offsetY: 0 },
+      { angle: 135, offsetX: 0, offsetY: 0 },
+      { angle: 195, offsetX: 0, offsetY: 0 }
     ]
   },
   threeQuarter: {
     startTemple: [-0.95, 0.45],
     endTemple: [1.02, 0.45],
     lower: [
-      [0.9, 1.02],
-      [0.35, 1.42],
-      [-0.15, 1.56],
-      [-0.55, 1.15],
-      [-1.03, 0.55]
+      { angle: 15, offsetX: 0, offsetY: 0 },
+      { angle: 58, offsetX: 0, offsetY: 0 },
+      { angle: 97, offsetX: 0, offsetY: 0 },
+      { angle: 152, offsetX: 0, offsetY: 0 },
+      { angle: 205, offsetX: 0, offsetY: 0 }
     ]
   },
   side: {
     startTemple: [-1.05, 0.52],
     endTemple: [1.05, 0.52],
     lower: [
-      [0.68, 1.28],
-      [0.05, 1.6],
-      [-1.05, 1.12],
-      [-1.23, 0.86],
-      [-1.06, 0.53]
+      { angle: 35, offsetX: 0, offsetY: 0 },
+      { angle: 85, offsetX: 0, offsetY: 0 },
+      { angle: 138, offsetX: 0, offsetY: 0 },
+      { angle: 180, offsetX: 0, offsetY: 0 },
+      { angle: 215, offsetX: 0, offsetY: 0 }
     ]
   }
 };
 
-const LOWER_OUTLINE_WEIGHTS = [0.65, 0.9, 1, 0.55, 0.25];
 const NOSE_OUTLINE_WEIGHTS = [0, 0, 0, 1, 0.35];
 
 export function solveFaceRig(params) {
@@ -152,12 +151,12 @@ function solveHead(params, pose) {
     ry: reference.lowerFace.ry * skull.ry * (params.lowerFaceHeight / DEFAULTS.lowerFaceHeight),
     z: 24
   };
-  const outlineReference = interpolateOutlineLandmarks(pose.amount);
+  const outlineReference = interpolateOutlineLandmarks(params.outlineLandmarks ?? defaultOutlineLandmarks, pose.amount);
 
   const skullGuide = sampleEllipse(projectStructure, skull, 48);
   const lowerFaceGuide = sampleEllipse(projectStructure, lowerFace, 48);
 
-  const outline = makeLandmarkOutline(projectStructure, skull, pose, params, outlineReference);
+  const outline = makeLandmarkOutline(projectStructure, skull, lowerFace, pose, params, outlineReference);
 
   return {
     guides: {
@@ -213,12 +212,12 @@ function sampleEllipseArc(project, ellipse, startTheta, endTheta, segments) {
   return points;
 }
 
-function makeLandmarkOutline(project, skull, pose, params, landmarks) {
+function makeLandmarkOutline(project, skull, lowerFace, pose, params, landmarks) {
   const upperArc = sampleSkullArc(project, skull, pose.sign, landmarks.startTemple, landmarks.endTemple, 18);
   const lowerPoints = landmarks.lower.map((point, index) => {
-    const adjusted = adjustOutlineLandmark(point, index, pose, params, skull);
+    const adjusted = lowerEllipseLandmark(lowerFace, point, index, pose, params, skull);
 
-    return projectReferencePoint(project, skull, pose.sign, adjusted, 0);
+    return project(adjusted.x, adjusted.y, 0);
   });
 
   return [
@@ -259,18 +258,19 @@ function angleForCirclePoint(point) {
   );
 }
 
-function adjustOutlineLandmark(point, index, pose, params, skull) {
-  const lowerWeight = LOWER_OUTLINE_WEIGHTS[index];
+function lowerEllipseLandmark(lowerFace, landmark, index, pose, params, skull) {
   const noseWeight = NOSE_OUTLINE_WEIGHTS[index] * pose.amount;
-  const lowerScaleX = params.lowerFaceWidth / DEFAULTS.lowerFaceWidth;
-  const lowerScaleY = params.lowerFaceHeight / DEFAULTS.lowerFaceHeight;
-  const lowerYOffset = (params.lowerFaceY - DEFAULTS.lowerFaceY) / skull.ry;
   const noseLengthOffset = (params.noseLength - DEFAULTS.noseLength) / skull.rx;
+  const mirroredAngle = pose.sign < 0 ? 180 - landmark.angle : landmark.angle;
+  const theta = mirroredAngle * Math.PI / 180;
 
-  return [
-    point[0] * lerp(1, lowerScaleX, lowerWeight) - noseLengthOffset * noseWeight * 0.55,
-    0.45 + (point[1] - 0.45) * lerp(1, lowerScaleY, lowerWeight) + lowerYOffset * lowerWeight
-  ];
+  return {
+    x: lowerFace.cx
+      + Math.cos(theta) * lowerFace.rx
+      + pose.sign * landmark.offsetX * skull.rx
+      - pose.sign * noseLengthOffset * noseWeight * 0.55 * skull.rx,
+    y: lowerFace.cy + Math.sin(theta) * lowerFace.ry + landmark.offsetY * skull.ry
+  };
 }
 
 function solveFeatures(params, pose, structure) {
@@ -323,12 +323,12 @@ function interpolateReferencePose(amount) {
   return blendReferencePose(REFERENCE_POSES.threeQuarter, REFERENCE_POSES.side, (amount - 0.5) / 0.5);
 }
 
-function interpolateOutlineLandmarks(amount) {
+function interpolateOutlineLandmarks(outlineLandmarks, amount) {
   if (amount <= 0.5) {
-    return blendOutlineLandmarks(OUTLINE_LANDMARKS.front, OUTLINE_LANDMARKS.threeQuarter, amount / 0.5);
+    return blendOutlineLandmarks(outlineLandmarks.front, outlineLandmarks.threeQuarter, amount / 0.5);
   }
 
-  return blendOutlineLandmarks(OUTLINE_LANDMARKS.threeQuarter, OUTLINE_LANDMARKS.side, (amount - 0.5) / 0.5);
+  return blendOutlineLandmarks(outlineLandmarks.threeQuarter, outlineLandmarks.side, (amount - 0.5) / 0.5);
 }
 
 function blendReferencePose(fromPose, toPose, amount) {
@@ -352,7 +352,11 @@ function blendOutlineLandmarks(fromOutline, toOutline, amount) {
   return {
     startTemple: blendPair(fromOutline.startTemple, toOutline.startTemple, amount),
     endTemple: blendPair(fromOutline.endTemple, toOutline.endTemple, amount),
-    lower: fromOutline.lower.map((point, index) => blendPair(point, toOutline.lower[index], amount))
+    lower: fromOutline.lower.map((point, index) => ({
+      angle: lerp(point.angle, toOutline.lower[index].angle, amount),
+      offsetX: lerp(point.offsetX, toOutline.lower[index].offsetX, amount),
+      offsetY: lerp(point.offsetY, toOutline.lower[index].offsetY, amount)
+    }))
   };
 }
 

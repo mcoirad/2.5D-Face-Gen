@@ -11,13 +11,14 @@ body {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 260px minmax(420px, 1fr) 340px;
   gap: 20px;
   min-height: 100vh;
   padding: 20px;
 }
 
-.controls-panel {
+.controls-panel,
+.landmarks-panel {
   align-self: start;
 }
 
@@ -54,8 +55,64 @@ input[type="range"] {
   width: auto;
 }
 
+.landmark-editor {
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  border-left: 1px solid #d0d0cc;
+  padding-left: 16px;
+}
+
+.landmark-editor summary,
+.pose-editor summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.landmark-editor-content {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.pose-editor {
+  border: 1px solid #d7d7d3;
+  padding: 8px;
+  background: #fafaf8;
+}
+
+.landmark-grid {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.landmark-row {
+  display: grid;
+  grid-template-columns: 1fr 64px 64px;
+  gap: 6px;
+  align-items: end;
+}
+
+.landmark-row-wide {
+  grid-template-columns: 1fr 70px 70px 70px;
+}
+
+.landmark-row label {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.landmark-row input {
+  width: 100%;
+}
+
+.landmark-name {
+  font-size: 0.85rem;
+}
+
 .stage-panel {
   min-width: 0;
+  align-self: start;
 }
 
 svg {
@@ -66,8 +123,17 @@ svg {
   background: #fafafa;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 1100px) {
   .app-shell {
     grid-template-columns: 1fr;
+  }
+
+  .landmark-editor {
+    max-height: none;
+    overflow: visible;
+    border-left: 0;
+    border-top: 1px solid #d0d0cc;
+    padding-left: 0;
+    padding-top: 12px;
   }
 }

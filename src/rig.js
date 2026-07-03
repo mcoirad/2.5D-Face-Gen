@@ -281,16 +281,22 @@ function solveFeatures(params, pose, structure) {
   const noseYOffset = (params.noseLength - DEFAULTS.noseLength) * 0.45;
   const mouthScale = params.mouthWidth / DEFAULTS.mouthWidth;
   const showFarFeature = pose.amount < 0.92;
+  const featureVisibility = [showFarFeature, true];
 
   const eyes = [
-    makeReferenceEye(projectStructure, structure.skull, pose.sign, reference.eyes[0], eyeScale, eyeYOffset, true),
-    makeReferenceEye(projectStructure, structure.skull, pose.sign, reference.eyes[1], eyeScale, eyeYOffset, showFarFeature)
+    makeReferenceEye(projectStructure, structure.skull, pose.sign, reference.eyes[0], eyeScale, eyeYOffset, featureVisibility[0]),
+    makeReferenceEye(projectStructure, structure.skull, pose.sign, reference.eyes[1], eyeScale, eyeYOffset, featureVisibility[1])
   ];
 
   const browY = reference.eyes[0].cy * structure.skull.ry + structure.skull.cy - 30 + eyeYOffset;
+  const browX = [
+    pose.sign * reference.eyes[0].cx * structure.skull.rx,
+    pose.sign * reference.eyes[1].cx * structure.skull.rx
+  ];
+  const browTiltDirections = browX[0] <= browX[1] ? [-1, 1] : [1, -1];
   const brows = [
-    makeBrow(projectStructure, pose.sign, pose.sign * reference.eyes[0].cx * structure.skull.rx, browY, params.eyeTilt, 1, true),
-    makeBrow(projectStructure, -pose.sign, pose.sign * reference.eyes[1].cx * structure.skull.rx, browY, params.eyeTilt, 1, showFarFeature)
+    makeBrow(projectStructure, pose.sign, browX[0], browY, params.eyeTilt, 1, featureVisibility[0], browTiltDirections[0]),
+    makeBrow(projectStructure, -pose.sign, browX[1], browY, params.eyeTilt, 1, featureVisibility[1], browTiltDirections[1])
   ];
 
   const nostrils = makeNostrils(projectStructure, structure.skull, pose, reference.nose.base, noseYOffset);
@@ -429,11 +435,13 @@ function makeEye(project, side, x, y, size, widthScale, visible) {
   };
 }
 
-function makeBrow(project, side, x, y, tilt, widthScale, visible) {
+function makeBrow(project, side, x, y, tilt, widthScale, visible, tiltDirection) {
+  const halfWidth = 20 * widthScale;
+
   return {
     side,
-    start: project(x - side * 20 * widthScale, y - tilt * 20 * side, 35),
-    end: project(x + side * 20 * widthScale, y + tilt * 20 * side, 35),
+    start: project(x - halfWidth, y + tilt * 20 * tiltDirection, 35),
+    end: project(x + halfWidth, y - tilt * 20 * tiltDirection, 35),
     visible
   };
 }

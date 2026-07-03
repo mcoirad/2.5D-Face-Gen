@@ -6,6 +6,7 @@ const params = {
   sphereDivide: 0,
   chinWidth: 70,
   eyeSpacing: 46,
+  eyeY: -35,
   eyeSize: 18,
   eyeTilt: 0,
   noseLength: 48,
@@ -21,6 +22,7 @@ const sliders = {
   sphereDivide: [-45, 65, 1],
   chinWidth: [30, 130, 1],
   eyeSpacing: [25, 70, 1],
+  eyeY: [-75, 20, 1],
   eyeSize: [8, 30, 1],
   eyeTilt: [-0.6, 0.6, 0.01],
   noseLength: [20, 80, 1],
@@ -182,23 +184,27 @@ function curvedMouth(left, mid, right) {
 }
 
 function render() {
-  const leftEye = P(-params.eyeSpacing, -35, 35);
-  const rightEye = P(params.eyeSpacing, -35, 35);
+  const featureYOffset = params.eyeY - -35;
+  const noseYOffset = featureYOffset * 0.55;
+  const mouthYOffset = featureYOffset * 0.25;
 
-  const leftBrow1 = P(-params.eyeSpacing - 20, -65 - params.eyeTilt * 20, 35);
-  const leftBrow2 = P(-params.eyeSpacing + 20, -65 + params.eyeTilt * 20, 35);
+  const leftEye = P(-params.eyeSpacing, params.eyeY, 35);
+  const rightEye = P(params.eyeSpacing, params.eyeY, 35);
 
-  const rightBrow1 = P(params.eyeSpacing - 20, -65 + params.eyeTilt * 20, 35);
-  const rightBrow2 = P(params.eyeSpacing + 20, -65 - params.eyeTilt * 20, 35);
+  const leftBrow1 = P(-params.eyeSpacing - 20, -65 + featureYOffset - params.eyeTilt * 20, 35);
+  const leftBrow2 = P(-params.eyeSpacing + 20, -65 + featureYOffset + params.eyeTilt * 20, 35);
 
-  const noseBridge = P(0, -10, 55);
-  const noseTip = P(0, params.noseLength, 75);
-  const leftNostril = P(-14, params.noseLength + 10, 58);
-  const rightNostril = P(14, params.noseLength + 10, 58);
+  const rightBrow1 = P(params.eyeSpacing - 20, -65 + featureYOffset + params.eyeTilt * 20, 35);
+  const rightBrow2 = P(params.eyeSpacing + 20, -65 + featureYOffset - params.eyeTilt * 20, 35);
 
-  const mouthLeft = P(-params.mouthWidth / 2, 85, 45);
-  const mouthRight = P(params.mouthWidth / 2, 85, 45);
-  const mouthMid = P(0, 85 + params.smile, 60);
+  const noseBridge = P(0, -10 + noseYOffset, 55);
+  const noseTip = P(0, params.noseLength + noseYOffset, 75);
+  const leftNostril = P(-14, params.noseLength + 10 + noseYOffset, 58);
+  const rightNostril = P(14, params.noseLength + 10 + noseYOffset, 58);
+
+  const mouthLeft = P(-params.mouthWidth / 2, 85 + mouthYOffset, 45);
+  const mouthRight = P(params.mouthWidth / 2, 85 + mouthYOffset, 45);
+  const mouthMid = P(0, 85 + params.smile + mouthYOffset, 60);
 
   stage.innerHTML = `
     <svg viewBox="0 0 500 500" role="img" aria-label="Pseudo 3D face preview">

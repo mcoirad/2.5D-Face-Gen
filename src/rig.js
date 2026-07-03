@@ -12,7 +12,10 @@ const DEFAULTS = {
   lowerFaceY: 105,
   lowerFaceSideShift: 38,
   eyeY: -35,
+  eyeSpacing: 46,
   eyeSize: 18,
+  eyeUpperOpen: 1,
+  eyeLowerOpen: 1,
   noseLength: 48,
   mouthWidth: 70
 };
@@ -284,12 +287,17 @@ function solveFeatures(params, pose, structure) {
   const reference = structure.reference;
   const eyeScale = params.eyeSize / DEFAULTS.eyeSize;
   const eyeYOffset = params.eyeY - DEFAULTS.eyeY;
+  const eyeShape = {
+    upperOpen: params.eyeUpperOpen / DEFAULTS.eyeUpperOpen,
+    lowerOpen: params.eyeLowerOpen / DEFAULTS.eyeLowerOpen
+  };
+  const referenceEyes = spaceReferenceEyes(reference.eyes, params.eyeSpacing / DEFAULTS.eyeSpacing);
   const noseYOffset = (params.noseLength - DEFAULTS.noseLength) * 0.45;
   const mouthScale = params.mouthWidth / DEFAULTS.mouthWidth;
 
   const eyes = [
-    makeReferenceEye(projectStructure, structure.skull, pose.sign, reference.eyes[0], eyeScale, eyeYOffset, true),
-    makeReferenceEye(projectStructure, structure.skull, pose.sign, reference.eyes[1], eyeScale, eyeYOffset, true)
+    makeReferenceEye(projectStructure, structure.skull, pose.sign, referenceEyes[0], eyeScale, eyeShape, eyeYOffset, true),
+    makeReferenceEye(projectStructure, structure.skull, pose.sign, referenceEyes[1], eyeScale, eyeShape, eyeYOffset, true)
   ];
 
   const nostrils = makeNostrils(projectStructure, structure.skull, pose, reference.nose.base, noseYOffset);
@@ -304,10 +312,10 @@ function solveFeatures(params, pose, structure) {
     eye.visible = featureVisibility[index];
   });
 
-  const browY = reference.eyes[0].cy * structure.skull.ry + structure.skull.cy - 30 + eyeYOffset;
+  const browY = referenceEyes[0].cy * structure.skull.ry + structure.skull.cy - 30 + eyeYOffset;
   const browX = [
-    pose.sign * reference.eyes[0].cx * structure.skull.rx,
-    pose.sign * reference.eyes[1].cx * structure.skull.rx
+    pose.sign * referenceEyes[0].cx * structure.skull.rx,
+    pose.sign * referenceEyes[1].cx * structure.skull.rx
   ];
   const browTiltDirections = browX[0] <= browX[1] ? [-1, 1] : [1, -1];
   const brows = [
@@ -338,6 +346,15 @@ function solveFeatureVisibilityFromNose(pose, eyes, noseTip) {
     !farEyeIsOccluded,
     true
   ];
+}
+
+function spaceReferenceEyes(referenceEyes, spacingScale) {
+  const midpoint = (referenceEyes[0].cx + referenceEyes[1].cx) / 2;
+
+  return referenceEyes.map(eye => ({
+    ...eye,
+    cx: midpoint + (eye.cx - midpoint) * spacingScale
+  }));
 }
 
 function solveHelmet(params, pose, structure, features) {
@@ -455,7 +472,7 @@ function makeHelmetEyeOpenings(project, eyes, pose, skull) {
 function makeHelmetEyeOpening(project, eye, pose, skull) {
   const profileNarrowing = lerp(1, 0.62, smoothstep(0.55, 1, pose.amount));
   const width = Math.max(34, eye.rx * 2.35 * profileNarrowing);
-  const height = Math.max(20, eye.ry * 1.75);
+  const upperOpen = Math.max(10, eye.upperOpen * 1.15);
   const { x, y } = eye.center;
   const leftX = x - width * 0.34;
   const rightX = x + width * 0.34;
@@ -468,8 +485,8 @@ function makeHelmetEyeOpening(project, eye, pose, skull) {
     path: [
       entry.point,
       { x: x + width * 0.5, y },
-      { x: x + width * 0.32, y: y - height * 0.5 },
-      { x: x - width * 0.32, y: y - height * 0.5 },
+      { x: x + width * 0.32, y: y - upperOpen },
+      { x: x - width * 0.32, y: y - upperOpen },
       { x: x - width * 0.5, y },
       exit.point
     ]
@@ -689,13 +706,21 @@ function blendPair(fromPair, toPair, amount) {
   ];
 }
 
-function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, yOffset, visible) {
+function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, eyeShape, yOffset, visible) {
+  const rx = referenceEye.rx * skull.rx * scale;
+  const baseRy = referenceEye.ry * skull.ry * scale;
+  const upperOpen = baseRy * eyeShape.upperOpen;
+  const lowerOpen = baseRy * eyeShape.lowerOpen;
+  const irisRadius = Math.min(rx * 0.34, (upperOpen + lowerOpen) * 0.42);
+
   return {
     side: poseSignValue,
     center: projectReferencePoint(project, skull, poseSignValue, [referenceEye.cx, referenceEye.cy], 35, yOffset),
-    rx: referenceEye.rx * skull.rx * scale,
-    ry: referenceEye.ry * skull.ry * scale,
-    pupilRadius: Math.min(referenceEye.rx * skull.rx, referenceEye.ry * skull.ry) * scale / 4,
+    rx,
+    upperOpen,
+    lowerOpen,
+    irisRadius,
+    pupilRadius: irisRadius * 0.42,
     visible
   };
 }

@@ -16,52 +16,151 @@ const landmarkLabels = {
   startTemple: "Arc start",
   endTemple: "Arc end"
 };
+const controlGroups = [
+  {
+    title: "View",
+    keys: ["yaw", "pitch"],
+    open: true
+  },
+  {
+    title: "Face",
+    keys: [
+      "faceWidth",
+      "faceHeight",
+      "lowerFaceWidth",
+      "lowerFaceHeight",
+      "lowerFaceY",
+      "lowerFaceSideShift"
+    ],
+    open: true
+  },
+  {
+    title: "Outline",
+    keys: ["outlineArcGap", "outlineOuterGap", "outlineInnerGap"],
+    open: false
+  },
+  {
+    title: "Eyes",
+    keys: ["eyeSpacing", "eyeY", "eyeSize", "eyeUpperOpen", "eyeLowerOpen", "eyeTilt"],
+    open: true
+  },
+  {
+    title: "Nose",
+    keys: ["noseLength"],
+    open: false
+  },
+  {
+    title: "Mouth",
+    keys: ["mouthWidth", "smile"],
+    open: false
+  },
+  {
+    title: "Helmet",
+    keys: [
+      "showHelmet",
+      "showHelmetShell",
+      "showHelmetFacePlate",
+      "showHelmetFarCheekGuard",
+      "showHelmetNearCheekGuard",
+      "showHelmetNoseGuard"
+    ],
+    open: false
+  },
+  {
+    title: "Display",
+    keys: ["showGuides"],
+    open: false
+  }
+];
 
 function formatControlName(key) {
   return key.replace(/([A-Z])/g, " $1").replace(/^./, char => char.toUpperCase());
 }
 
 function createControls() {
-  for (const key in sliderConfig) {
-    const [min, max, step] = sliderConfig[key];
-    const label = document.createElement("label");
+  for (const group of controlGroups) {
+    const groupElement = createControlGroup(group);
 
-    label.innerHTML = `
-      <span class="control-label">
-        <span>${formatControlName(key)}</span>
-        <span id="${key}-value">${params[key]}</span>
-      </span>
-      <input type="range" min="${min}" max="${max}" step="${step}" value="${params[key]}" id="${key}">
-    `;
-
-    controls.appendChild(label);
-
-    label.querySelector("input").addEventListener("input", event => {
-      params[key] = Number(event.target.value);
-      document.getElementById(`${key}-value`).textContent = params[key];
-      render();
-    });
-  }
-
-  for (const key in toggleConfig) {
-    const label = document.createElement("label");
-
-    label.innerHTML = `
-      <span class="toggle-control">
-        <input type="checkbox" id="${key}" ${params[key] ? "checked" : ""}>
-        <span>${formatControlName(key)}</span>
-      </span>
-    `;
-
-    controls.appendChild(label);
-
-    label.querySelector("input").addEventListener("change", event => {
-      params[key] = event.target.checked;
-      render();
-    });
+    if (groupElement) {
+      controls.appendChild(groupElement);
+    }
   }
 
   createLandmarkEditor();
+}
+
+function createControlGroup(group) {
+  const fields = group.keys
+    .map(createControlForKey)
+    .filter(Boolean);
+
+  if (!fields.length) {
+    return null;
+  }
+
+  const details = document.createElement("details");
+  details.className = "control-group";
+  details.open = group.open;
+  details.innerHTML = `
+    <summary>${group.title}</summary>
+    <div class="control-group-content"></div>
+  `;
+
+  const content = details.querySelector(".control-group-content");
+  fields.forEach(field => content.appendChild(field));
+
+  return details;
+}
+
+function createControlForKey(key) {
+  if (sliderConfig[key]) {
+    return createSliderControl(key);
+  }
+
+  if (toggleConfig[key]) {
+    return createToggleControl(key);
+  }
+
+  return null;
+}
+
+function createSliderControl(key) {
+  const [min, max, step] = sliderConfig[key];
+  const label = document.createElement("label");
+
+  label.innerHTML = `
+    <span class="control-label">
+      <span>${formatControlName(key)}</span>
+      <span id="${key}-value">${params[key]}</span>
+    </span>
+    <input type="range" min="${min}" max="${max}" step="${step}" value="${params[key]}" id="${key}">
+  `;
+
+  label.querySelector("input").addEventListener("input", event => {
+    params[key] = Number(event.target.value);
+    document.getElementById(`${key}-value`).textContent = params[key];
+    render();
+  });
+
+  return label;
+}
+
+function createToggleControl(key) {
+  const label = document.createElement("label");
+
+  label.innerHTML = `
+    <span class="toggle-control">
+      <input type="checkbox" id="${key}" ${params[key] ? "checked" : ""}>
+      <span>${formatControlName(key)}</span>
+    </span>
+  `;
+
+  label.querySelector("input").addEventListener("change", event => {
+    params[key] = event.target.checked;
+    render();
+  });
+
+  return label;
 }
 
 function createLandmarkEditor() {

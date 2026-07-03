@@ -88,29 +88,62 @@ function renderBrow(brow) {
   `;
 }
 
-function renderEye(eye) {
+function renderEye(eye, index) {
   if (!eye.visible) {
     return "";
   }
 
+  const path = renderEyePath(eye);
+  const clipId = `eye-clip-${index}`;
+
   return `
-    <ellipse
-      cx="${eye.center.x}"
-      cy="${eye.center.y}"
-      rx="${eye.rx * eye.center.scale}"
-      ry="${eye.ry * eye.center.scale}"
+    <defs>
+      <clipPath id="${clipId}">
+        <path d="${path}" />
+      </clipPath>
+    </defs>
+    <path
+      d="${path}"
       fill="white"
       stroke="black"
       stroke-width="3"
+      stroke-linejoin="round"
     />
-    <ellipse
-      cx="${eye.center.x}"
-      cy="${eye.center.y}"
-      rx="${eye.pupilRadius * eye.center.scale}"
-      ry="${eye.pupilRadius * eye.center.scale}"
-      fill="black"
-    />
+    <g clip-path="url(#${clipId})">
+      <ellipse
+        cx="${eye.center.x}"
+        cy="${eye.center.y}"
+        rx="${eye.irisRadius * eye.center.scale}"
+        ry="${eye.irisRadius * eye.center.scale}"
+        fill="#8a8f8f"
+        stroke="black"
+        stroke-width="1.5"
+      />
+      <ellipse
+        cx="${eye.center.x}"
+        cy="${eye.center.y}"
+        rx="${eye.pupilRadius * eye.center.scale}"
+        ry="${eye.pupilRadius * eye.center.scale}"
+        fill="black"
+      />
+    </g>
   `;
+}
+
+function renderEyePath(eye) {
+  const rx = eye.rx * eye.center.scale;
+  const upperOpen = eye.upperOpen * eye.center.scale;
+  const lowerOpen = eye.lowerOpen * eye.center.scale;
+  const leftX = eye.center.x - rx;
+  const rightX = eye.center.x + rx;
+  const centerY = eye.center.y;
+
+  return [
+    `M ${leftX} ${centerY}`,
+    `Q ${eye.center.x} ${centerY - upperOpen} ${rightX} ${centerY}`,
+    `Q ${eye.center.x} ${centerY + lowerOpen} ${leftX} ${centerY}`,
+    "Z"
+  ].join(" ");
 }
 
 function renderNose(nose) {

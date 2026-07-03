@@ -351,27 +351,54 @@ function solveFeatureVisibilityFromNose(pose, eyes, noseTip) {
 
 function solveHair(params, pose, structure) {
   const guides = makeHairGuides(params, pose, structure);
+  const anchors = makeScalpAnchors(guides, params);
+  const strands = params.showHairStrands
+    ? makeHairStrands(anchors, params, pose)
+    : [];
 
   return {
-    strands: params.showHairStrands
-      ? makeHairStrands(guides, params, pose)
-      : [],
+    renderMode: params.hairRenderMode,
+    anchors,
+    strands,
+    locks: makeHairLocks(anchors, params, pose),
     guides: params.showHairPartGuide ? guides : []
   };
 }
 
 function makeHairGuides(params, pose, structure) {
   return [-1, -0.5, 0, 0.5, 1].map(sideOffset => {
-    const hairlineAmount = params.hairline * lerp(1, 0.55 + 0.45 * Math.abs(sideOffset), params.hairMalePatternBaldnessBias);
+    const sideWeight = Math.abs(sideOffset);
+    const baldnessScale = lerp(1, 0.55 + 0.45 * sideWeight, params.hairMalePatternBaldnessBias);
+    const shapeScale = hairlineShapeScale(params.hairlineShape, sideWeight);
+    const hairlineAmount = clamp(params.hairline * params.hairPartDepth * baldnessScale * shapeScale, 0.05, 1.2);
 
     return makeHairGuide(params, pose, structure, sideOffset, hairlineAmount);
   });
 }
 
+function hairlineShapeScale(shape, sideWeight) {
+  const centerWeight = 1 - sideWeight;
+
+  if (shape === "straight") {
+    return 1;
+  }
+
+  if (shape === "widowsPeak") {
+    return 0.9 + centerWeight * 0.3;
+  }
+
+  if (shape === "receding") {
+    return 1 - centerWeight * 0.28;
+  }
+
+  return 0.92 + centerWeight * 0.16;
+}
+
 function makeHairGuide(params, pose, structure, sideOffset, hairlineAmount) {
   const projectStructure = createStructureProjector(params);
   const { skull } = structure;
-  const guideAngle = sideOffset * Math.PI / 2 - pose.yaw * Math.PI / 2;
+  const partShift = params.hairPartPosition * Math.PI * 0.35;
+  const guideAngle = sideOffset * Math.PI / 2 + partShift - pose.yaw * Math.PI / 2;
   const sidePosition = Math.sin(guideAngle);
   const depthPosition = Math.cos(guideAngle);
   const guideEndTheta = lerp(-Math.PI / 2, 0, hairlineAmount);
@@ -392,42 +419,66 @@ function makeHairGuide(params, pose, structure, sideOffset, hairlineAmount) {
   return points;
 }
 
-function makeHairStrands(guides, params, pose) {
-  const count = Math.round(params.hairStrandCount);
+function makeScalpAnchors(guides, params) {
+  return guides.flatMap((guide, guideIndex) => {
+    const guideSideWeight = Math.abs(guideIndex - ((guides.length - 1) / 2)) / ((guides.length - 1) / 2);
 
-  if (count <= 0 || !guides.length) {
+    return Array.from({ length: 9 }, (_, pointIndex) => {
+      const guidePosition = pointIndex / 8;
+      const sample = samplePolyline(guide, guidePosition);
+      const crownCoverage = lerp(params.hairCrownCoverage, 1, guidePosition);
+      const sideCoverage = lerp(1, params.hairSideCoverage, guideSideWeight);
+      const coverage = clamp(crownCoverage * sideCoverage, 0, 1);
+
+      return {
+        point: sample.point,
+        tangent: sample.tangent,
+        sideWeight: guideSideWeight,
+        guideIndex,
+        pointIndex,
+        guidePosition,
+        depth: sample.depth,
+        layer: sample.depth < -65 && guideSideWeight > 0.9 ? "back" : "front",
+        coverage
+      };
+    });
+  });
+}
+
+function makeHairStrands(anchors, params, pose) {
+  const count = Math.round(params.hairStrandCount);
+  const eligibleAnchors = filterCoveredAnchors(anchors, 12);
+
+  if (count <= 0 || !eligibleAnchors.length) {
     return [];
   }
 
   return Array.from({ length: count }, (_, index) => {
-    const guideIndex = index % guides.length;
-    const guide = guides[guideIndex];
-    const guidePosition = Math.floor(index / guides.length);
-    const guideCount = Math.ceil((count - guideIndex) / guides.length);
-    const guideSideWeight = Math.abs(guideIndex - ((guides.length - 1) / 2)) / ((guides.length - 1) / 2);
+    const anchor = eligibleAnchors[index % eligibleAnchors.length];
 
     return makeHairStrand(
-      guide,
+      anchor,
       params,
       pose,
-      guidePosition,
-      Math.max(guideCount, 1),
-      index + guideIndex * 101,
-      guideSideWeight
+      index + anchor.guideIndex * 101 + anchor.pointIndex * 17
     );
   });
 }
 
-function makeHairStrand(guide, params, pose, index, count, randomIndex, guideSideWeight) {
-  const t = count === 1 ? 0.2 : lerp(0.04, 0.96, index / (count - 1));
-  const anchor = samplePolyline(guide, t);
+function filterCoveredAnchors(anchors, salt) {
+  return anchors.filter(anchor => seededRandom(anchor.guideIndex * 41 + anchor.pointIndex * 13, salt) <= anchor.coverage);
+}
+
+function makeHairStrand(anchor, params, pose, randomIndex) {
+  const hairColor = resolveHairColor(params);
+  const t = anchor.guidePosition;
   const randomSide = seededRandom(randomIndex, 1) < 0.5 ? -1 : 1;
   const guideSide = Math.sign(anchor.point.x - 250);
   const outwardSide = guideSide === 0 ? randomSide : -guideSide;
   const side = seededRandom(randomIndex, 6) < smoothstep(0.35, 1, pose.amount)
     ? outwardSide
     : randomSide;
-  const bangsLengthMultiplier = lerp(1, 4, params.hairBangsBias * guideSideWeight);
+  const bangsLengthMultiplier = lerp(1, 4, params.hairBangsBias * anchor.sideWeight);
   const length = params.hairStrandLength * bangsLengthMultiplier * lerp(0.62, 1.38, seededRandom(randomIndex, 2));
   const thickness = params.hairStrandThickness * lerp(0.55, 1.45, seededRandom(randomIndex, 3));
   const curve = params.hairStrandCurve * length * lerp(-0.55, 0.85, seededRandom(randomIndex, 4));
@@ -477,10 +528,157 @@ function makeHairStrand(guide, params, pose, index, count, randomIndex, guideSid
       offsetPoint(baseRight, direction, length * 0.48),
       controlRightOffset
     ),
-    fill: "#26211c",
-    stroke: "#17130f",
+    layer: anchor.layer,
+    fill: hairColor.fill,
+    stroke: hairColor.stroke,
     opacity: 0.92
   };
+}
+
+function makeHairLocks(anchors, params, pose) {
+  const count = Math.round(params.hairLockCount);
+  const eligibleAnchors = filterCoveredAnchors(anchors, 29)
+    .filter(anchor => anchor.guidePosition > 0.08);
+
+  if (count <= 0 || !eligibleAnchors.length) {
+    return [];
+  }
+
+  return Array.from({ length: count }, (_, index) => {
+    const anchor = eligibleAnchors[Math.floor(index * eligibleAnchors.length / count) % eligibleAnchors.length];
+
+    return makeHairLock(
+      anchor,
+      params,
+      pose,
+      index + anchor.guideIndex * 131 + anchor.pointIndex * 19
+    );
+  });
+}
+
+function makeHairLock(anchor, params, pose, randomIndex) {
+  const hairColor = resolveHairColor(params);
+  const randomSide = seededRandom(randomIndex, 1) < 0.5 ? -1 : 1;
+  const guideSide = Math.sign(anchor.point.x - 250);
+  const outwardSide = guideSide === 0 ? randomSide : -guideSide;
+  const side = seededRandom(randomIndex, 2) < smoothstep(0.35, 1, pose.amount)
+    ? outwardSide
+    : randomSide;
+  const bangsLengthMultiplier = lerp(1, 4, params.hairBangsBias * anchor.sideWeight);
+  const length = params.hairLockLength * bangsLengthMultiplier * lerp(0.72, 1.28, seededRandom(randomIndex, 3));
+  const width = params.hairLockWidth * lerp(0.72, 1.35, seededRandom(randomIndex, 4));
+  const curve = params.hairLockCurve * length * lerp(-0.4, 0.8, seededRandom(randomIndex, 5));
+  const asymmetry = (seededRandom(randomIndex, 6) - 0.5) * params.hairLockAsymmetry;
+  const outward = {
+    x: -anchor.tangent.y * side,
+    y: anchor.tangent.x * side
+  };
+  const direction = normalizePoint({
+    x: outward.x * (1 - params.hairLockGravity) + asymmetry * anchor.sideWeight,
+    y: outward.y * (1 - params.hairLockGravity) + params.hairLockGravity
+  });
+  const curveNormal = {
+    x: -direction.y,
+    y: direction.x
+  };
+  const rootLeft = offsetPoint(anchor.point, anchor.tangent, -width / 2);
+  const rootRight = offsetPoint(anchor.point, anchor.tangent, width / 2);
+  const tip = offsetPoint(anchor.point, direction, length);
+  const curveOffset = {
+    x: curveNormal.x * curve,
+    y: curveNormal.y * curve
+  };
+  const controlLeft = addPoints(offsetPoint(rootLeft, direction, length * 0.42), curveOffset);
+  const controlRight = addPoints(offsetPoint(rootRight, direction, length * 0.46), curveOffset);
+  const notchDepth = seededRandom(randomIndex, 7) < 0.38
+    ? width * params.hairLockTaper * 0.18
+    : 0;
+  const tipSpread = width * (1 - params.hairLockTaper) * 0.16 + width * 0.035;
+  const tipLeft = offsetPoint(tip, anchor.tangent, -tipSpread);
+  const tipRight = offsetPoint(tip, anchor.tangent, tipSpread);
+  const notch = notchDepth > 0
+    ? offsetPoint(tip, direction, -notchDepth)
+    : null;
+  const detailLines = makeHairLockDetailLines(
+    rootLeft,
+    rootRight,
+    tip,
+    curveOffset,
+    Math.round(params.hairLockDetailLines),
+    hairColor.stroke
+  );
+
+  return {
+    rootLeft,
+    rootRight,
+    tip,
+    tipLeft,
+    tipRight,
+    notch,
+    controlLeft,
+    controlRight,
+    detailLines,
+    layer: anchor.layer,
+    fill: hairColor.fill,
+    stroke: hairColor.stroke,
+    opacity: 0.94
+  };
+}
+
+function makeHairLockDetailLines(rootLeft, rootRight, tip, curveOffset, count, stroke) {
+  if (count <= 0) {
+    return [];
+  }
+
+  return Array.from({ length: count }, (_, index) => {
+    const t = count === 1 ? 0.5 : (index + 1) / (count + 1);
+    const root = {
+      x: lerp(rootLeft.x, rootRight.x, t),
+      y: lerp(rootLeft.y, rootRight.y, t)
+    };
+    const end = {
+      x: lerp(root.x, tip.x, 0.86),
+      y: lerp(root.y, tip.y, 0.86)
+    };
+    const control = addPoints({
+      x: lerp(root.x, tip.x, 0.48),
+      y: lerp(root.y, tip.y, 0.48)
+    }, {
+      x: curveOffset.x * 0.45,
+      y: curveOffset.y * 0.45
+    });
+
+    return {
+      start: root,
+      control,
+      end,
+      stroke
+    };
+  });
+}
+
+function resolveHairColor(params) {
+  const fill = isHexColor(params.hairColor) ? params.hairColor : "#2a241e";
+
+  return {
+    fill,
+    stroke: darkenHex(fill, 0.55)
+  };
+}
+
+function isHexColor(value) {
+  return /^#[0-9a-f]{6}$/i.test(value);
+}
+
+function darkenHex(value, amount) {
+  const numeric = Number.parseInt(value.slice(1), 16);
+  const r = Math.round(((numeric >> 16) & 255) * amount);
+  const g = Math.round(((numeric >> 8) & 255) * amount);
+  const b = Math.round((numeric & 255) * amount);
+
+  return `#${[r, g, b]
+    .map(channel => channel.toString(16).padStart(2, "0"))
+    .join("")}`;
 }
 
 function samplePolyline(points, t) {
@@ -497,9 +695,13 @@ function samplePolyline(points, t) {
   return {
     point: {
       x: lerp(start.x, end.x, localT),
-      y: lerp(start.y, end.y, localT)
+      y: lerp(start.y, end.y, localT),
+      scale: lerp(start.scale, end.scale, localT),
+      depth: lerp(start.depth, end.depth, localT)
     },
-    tangent
+    tangent,
+    scale: lerp(start.scale, end.scale, localT),
+    depth: lerp(start.depth, end.depth, localT)
   };
 }
 

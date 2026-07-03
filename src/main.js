@@ -1,4 +1,4 @@
-import { defaultParams, sliderConfig, toggleConfig } from "./params.js";
+import { colorConfig, defaultParams, selectConfig, sliderConfig, toggleConfig } from "./params.js";
 import { defaultOutlineLandmarks, solveFaceRig } from "./rig.js";
 import { renderFaceSvg } from "./svgRenderer.js";
 
@@ -69,17 +69,32 @@ const controlGroups = [
   {
     title: "Hair",
     keys: [
+      "hairRenderMode",
+      "hairColor",
       "showHairStrands",
       "showHairPartGuide",
+      "hairPartPosition",
+      "hairPartDepth",
+      "hairline",
+      "hairlineShape",
+      "hairSideCoverage",
+      "hairCrownCoverage",
+      "hairMalePatternBaldnessBias",
+      "hairBangsBias",
+      "hairLockCount",
+      "hairLockWidth",
+      "hairLockLength",
+      "hairLockTaper",
+      "hairLockCurve",
+      "hairLockGravity",
+      "hairLockAsymmetry",
+      "hairLockDetailLines",
       "hairStrandCount",
       "hairStrandLength",
       "hairStrandThickness",
       "hairStrandCurve",
       "hairStrandSplitCurve",
-      "hairDownBias",
-      "hairline",
-      "hairMalePatternBaldnessBias",
-      "hairBangsBias"
+      "hairDownBias"
     ],
     open: true
   },
@@ -134,6 +149,14 @@ function createControlForKey(key) {
     return createSliderControl(key);
   }
 
+  if (selectConfig[key]) {
+    return createSelectControl(key);
+  }
+
+  if (colorConfig[key]) {
+    return createColorControl(key);
+  }
+
   if (toggleConfig[key]) {
     return createToggleControl(key);
   }
@@ -155,6 +178,48 @@ function createSliderControl(key) {
 
   label.querySelector("input").addEventListener("input", event => {
     params[key] = Number(event.target.value);
+    document.getElementById(`${key}-value`).textContent = params[key];
+    render();
+  });
+
+  return label;
+}
+
+function createSelectControl(key) {
+  const label = document.createElement("label");
+
+  label.innerHTML = `
+    <span class="control-label">
+      <span>${formatControlName(key)}</span>
+    </span>
+    <select id="${key}">
+      ${selectConfig[key].map(([value, labelText]) => `
+        <option value="${value}" ${params[key] === value ? "selected" : ""}>${labelText}</option>
+      `).join("")}
+    </select>
+  `;
+
+  label.querySelector("select").addEventListener("change", event => {
+    params[key] = event.target.value;
+    render();
+  });
+
+  return label;
+}
+
+function createColorControl(key) {
+  const label = document.createElement("label");
+
+  label.innerHTML = `
+    <span class="control-label">
+      <span>${formatControlName(key)}</span>
+      <span id="${key}-value">${params[key]}</span>
+    </span>
+    <input type="color" value="${params[key]}" id="${key}">
+  `;
+
+  label.querySelector("input").addEventListener("input", event => {
+    params[key] = event.target.value;
     document.getElementById(`${key}-value`).textContent = params[key];
     render();
   });

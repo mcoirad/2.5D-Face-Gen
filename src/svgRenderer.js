@@ -2,6 +2,7 @@ export function renderFaceSvg(rig) {
   return `
     <svg viewBox="0 0 500 500" role="img" aria-label="2.5D anime face preview">
       ${renderHelmetLayers(rig.helmet?.back)}
+      ${renderHair(rig.hair, "back")}
       ${renderHead(rig.head)}
       ${rig.showGuides ? renderGuides(rig.head.guides) : ""}
       ${rig.features.brows.map(renderBrow).join("")}
@@ -9,7 +10,7 @@ export function renderFaceSvg(rig) {
       ${renderNose(rig.features.nose)}
       ${renderMouth(rig.features.mouth)}
       ${renderHelmetLayers(rig.helmet?.front)}
-      ${renderHair(rig.hair)}
+      ${renderHair(rig.hair, "front")}
     </svg>
   `;
 }
@@ -73,14 +74,79 @@ function renderPointPath(points) {
     .join(" ");
 }
 
-function renderHair(hair) {
+function renderHair(hair, layer) {
   if (!hair) {
     return "";
   }
 
+  const mode = hair.renderMode ?? "strands";
+  const locks = mode === "strands"
+    ? ""
+    : hair.locks?.filter(item => matchesHairLayer(item, layer)).map(renderHairLock).join("") ?? "";
+  const strands = mode === "locks"
+    ? ""
+    : hair.strands?.filter(item => matchesHairLayer(item, layer)).map(renderHairStrand).join("") ?? "";
+  const guides = layer === "front" ? renderHairGuides(hair.guides) : "";
+  const anchors = layer === "front" && hair.guides?.length ? renderHairAnchors(hair.anchors) : "";
+
   return `
-    ${hair.strands?.map(renderHairStrand).join("") ?? ""}
-    ${renderHairGuides(hair.guides)}
+    ${locks}
+    ${strands}
+    ${guides}
+    ${anchors}
+  `;
+}
+
+function matchesHairLayer(item, layer) {
+  return layer === "back"
+    ? item.layer === "back"
+    : item.layer !== "back";
+}
+
+function renderHairLock(lock) {
+  return `
+    <path
+      d="${renderHairLockPath(lock)}"
+      fill="${lock.fill}"
+      stroke="${lock.stroke}"
+      stroke-width="2"
+      stroke-linejoin="round"
+      opacity="${lock.opacity}"
+    />
+    ${lock.detailLines?.map(renderHairLockDetailLine).join("") ?? ""}
+  `;
+}
+
+function renderHairLockPath(lock) {
+  if (lock.notch) {
+    return [
+      `M ${lock.rootLeft.x} ${lock.rootLeft.y}`,
+      `C ${lock.controlLeft.x} ${lock.controlLeft.y} ${lock.controlLeft.x} ${lock.controlLeft.y} ${lock.tipLeft.x} ${lock.tipLeft.y}`,
+      `L ${lock.notch.x} ${lock.notch.y}`,
+      `L ${lock.tipRight.x} ${lock.tipRight.y}`,
+      `C ${lock.controlRight.x} ${lock.controlRight.y} ${lock.controlRight.x} ${lock.controlRight.y} ${lock.rootRight.x} ${lock.rootRight.y}`,
+      "Z"
+    ].join(" ");
+  }
+
+  return [
+    `M ${lock.rootLeft.x} ${lock.rootLeft.y}`,
+    `C ${lock.controlLeft.x} ${lock.controlLeft.y} ${lock.controlLeft.x} ${lock.controlLeft.y} ${lock.tip.x} ${lock.tip.y}`,
+    `C ${lock.controlRight.x} ${lock.controlRight.y} ${lock.controlRight.x} ${lock.controlRight.y} ${lock.rootRight.x} ${lock.rootRight.y}`,
+    "Z"
+  ].join(" ");
+}
+
+function renderHairLockDetailLine(line) {
+  return `
+    <path
+      d="M ${line.start.x} ${line.start.y} Q ${line.control.x} ${line.control.y} ${line.end.x} ${line.end.y}"
+      fill="none"
+      stroke="${line.stroke}"
+      stroke-width="1.25"
+      stroke-linecap="round"
+      opacity="0.55"
+    />
   `;
 }
 
@@ -113,6 +179,18 @@ function renderHairGuides(guides = []) {
         stroke-dasharray="5 5"
       />
     `).join("");
+}
+
+function renderHairAnchors(anchors = []) {
+  return anchors.map(anchor => `
+    <circle
+      cx="${anchor.point.x}"
+      cy="${anchor.point.y}"
+      r="1.75"
+      fill="#2f6f73"
+      opacity="${0.18 + anchor.coverage * 0.42}"
+    />
+  `).join("");
 }
 
 function renderBrow(brow) {

@@ -1,13 +1,17 @@
 # Test Face
 
-A small static prototype for experimenting with a pseudo 3D SVG face and feature sliders.
+A small static prototype for experimenting with a 2.5D SVG anime face rig and feature sliders.
 
 ## Files
 
 - `index.html` contains the page structure.
 - `src/styles.css` contains layout and visual styling.
-- `src/app.js` contains the slider setup and face rendering logic.
+- `src/main.js` boots the app and wires the controls.
+- `src/params.js` contains defaults and slider metadata.
+- `src/rig.js` solves face landmarks from the current parameters.
+- `src/svgRenderer.js` renders solved landmarks as SVG.
+- `src/geometry.js` contains projection and interpolation helpers.
 
 ## Run
 
-Open `index.html` in a browser, or serve the folder with any static file server.
+Serve the folder with any static file server, then open the local URL in a browser.

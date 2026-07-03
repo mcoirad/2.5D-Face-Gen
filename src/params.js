@@ -17,6 +17,7 @@ export const defaultParams = {
   showHelmetFarCheekGuard: true,
   showHelmetNearCheekGuard: true,
   showHelmetNoseGuard: true,
+  showHairPartGuide: true,
   eyeSpacing: 46,
   eyeY: -35,
   eyeSize: 18,
@@ -58,5 +59,6 @@ export const toggleConfig = {
   showHelmetFacePlate: true,
   showHelmetFarCheekGuard: true,
   showHelmetNearCheekGuard: true,
-  showHelmetNoseGuard: true
+  showHelmetNoseGuard: true,
+  showHairPartGuide: true
 };

@@ -133,6 +133,7 @@ export function solveFaceRig(params) {
       profile
     },
     head,
+    hair: solveHair(params, pose, head.structure),
     helmet: solveHelmet(params, pose, head.structure, features),
     features,
     visibility: solveVisibility(pose.amount)
@@ -346,6 +347,39 @@ function solveFeatureVisibilityFromNose(pose, eyes, noseTip) {
     !farEyeIsOccluded,
     true
   ];
+}
+
+function solveHair(params, pose, structure) {
+  return {
+    partGuide: params.showHairPartGuide
+      ? makeHairPartGuide(params, pose, structure)
+      : []
+  };
+}
+
+function makeHairPartGuide(params, pose, structure) {
+  const projectStructure = createStructureProjector(params);
+  const { skull } = structure;
+  const surfaceAngle = -pose.yaw * Math.PI * 0.42;
+  const x = Math.sin(surfaceAngle) * skull.rx * 0.72;
+  const z = Math.cos(surfaceAngle) * 72;
+  const points = [];
+
+  for (let i = 0; i <= 8; i += 1) {
+    const t = i / 8;
+    const normalizedY = lerp(-1.04, 0.68, t);
+    const widthAtY = Math.sqrt(Math.max(0, 1 - normalizedY ** 2));
+    const curveX = x * widthAtY;
+    const curveZ = z * widthAtY;
+
+    points.push(projectStructure(
+      curveX,
+      skull.cy + normalizedY * skull.ry,
+      curveZ
+    ));
+  }
+
+  return points;
 }
 
 function spaceReferenceEyes(referenceEyes, spacingScale) {

@@ -67,6 +67,11 @@ const controlGroups = [
     open: false
   },
   {
+    title: "Hair",
+    keys: ["showHairPartGuide"],
+    open: true
+  },
+  {
     title: "Display",
     keys: ["showGuides"],
     open: false

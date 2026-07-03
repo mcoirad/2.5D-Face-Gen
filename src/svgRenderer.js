@@ -9,6 +9,7 @@ export function renderFaceSvg(rig) {
       ${renderNose(rig.features.nose)}
       ${renderMouth(rig.features.mouth)}
       ${renderHelmetLayers(rig.helmet?.front)}
+      ${renderHair(rig.hair)}
     </svg>
   `;
 }
@@ -70,6 +71,24 @@ function renderPointPath(points) {
   return points
     .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
     .join(" ");
+}
+
+function renderHair(hair) {
+  if (!hair?.partGuide?.length) {
+    return "";
+  }
+
+  return `
+    <path
+      d="${renderPointPath(hair.partGuide)}"
+      fill="none"
+      stroke="#2f6f73"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-dasharray="5 5"
+    />
+  `;
 }
 
 function renderBrow(brow) {

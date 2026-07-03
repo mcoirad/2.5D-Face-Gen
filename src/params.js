@@ -35,11 +35,16 @@ export const defaultParams = {
   hairCrownCoverage: 1,
   hairMalePatternBaldnessBias: 0,
   hairBangsBias: 0,
+  hairBangsLength: 0,
   hairLockCount: 10,
   hairLockWidth: 28,
   hairLockLength: 95,
   hairLockTaper: 0.65,
   hairLockCurve: 0.55,
+  hairCurveType: "mixed",
+  hairCurveRhythm: 0.5,
+  hairCurveTension: 0.55,
+  hairTipHook: 0.25,
   hairLockGravity: 0.7,
   hairLockAsymmetry: 0.35,
   hairLockDetailLines: 1,
@@ -83,16 +88,20 @@ export const sliderConfig = {
   hairDownBias: [0, 1, 0.01],
   hairPartPosition: [-1, 1, 0.01],
   hairPartDepth: [0.2, 1.2, 0.01],
-  hairline: [0.15, 1, 0.01],
+  hairline: [0.15, 1.2, 0.01],
   hairSideCoverage: [0, 1, 0.01],
   hairCrownCoverage: [0, 1, 0.01],
   hairMalePatternBaldnessBias: [0, 1, 0.01],
   hairBangsBias: [0, 1, 0.01],
+  hairBangsLength: [0, 1, 0.01],
   hairLockCount: [0, 36, 1],
   hairLockWidth: [8, 70, 1],
   hairLockLength: [30, 190, 1],
   hairLockTaper: [0.1, 1, 0.01],
   hairLockCurve: [0, 1.5, 0.01],
+  hairCurveRhythm: [0, 1, 0.01],
+  hairCurveTension: [0, 1, 0.01],
+  hairTipHook: [0, 1, 0.01],
   hairLockGravity: [0, 1, 0.01],
   hairLockAsymmetry: [0, 1, 0.01],
   hairLockDetailLines: [0, 3, 1]
@@ -109,6 +118,11 @@ export const selectConfig = {
     ["straight", "Straight"],
     ["widowsPeak", "Widow's peak"],
     ["receding", "Receding"]
+  ],
+  hairCurveType: [
+    ["mixed", "Mixed"],
+    ["c", "C curves"],
+    ["s", "S curves"]
   ]
 };
 

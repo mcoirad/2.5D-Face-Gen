@@ -370,7 +370,8 @@ function makeHairGuides(params, pose, structure) {
     const sideWeight = Math.abs(sideOffset);
     const baldnessScale = lerp(1, 0.55 + 0.45 * sideWeight, params.hairMalePatternBaldnessBias);
     const shapeScale = hairlineShapeScale(params.hairlineShape, sideWeight);
-    const hairlineAmount = clamp(params.hairline * params.hairPartDepth * baldnessScale * shapeScale, 0.05, 1.2);
+    const bangsShift = params.hairBangsBias * (sideWeight - 0.5) * 0.8;
+    const hairlineAmount = clamp(params.hairline * params.hairPartDepth * baldnessScale * shapeScale + bangsShift, 0.05, 1.2);
 
     return makeHairGuide(params, pose, structure, sideOffset, hairlineAmount);
   });
@@ -478,7 +479,7 @@ function makeHairStrand(anchor, params, pose, randomIndex) {
   const side = seededRandom(randomIndex, 6) < smoothstep(0.35, 1, pose.amount)
     ? outwardSide
     : randomSide;
-  const bangsLengthMultiplier = lerp(1, 4, params.hairBangsBias * anchor.sideWeight);
+  const bangsLengthMultiplier = lerp(1, 4, params.hairBangsLength * anchor.sideWeight);
   const length = params.hairStrandLength * bangsLengthMultiplier * lerp(0.62, 1.38, seededRandom(randomIndex, 2));
   const thickness = params.hairStrandThickness * lerp(0.55, 1.45, seededRandom(randomIndex, 3));
   const curve = params.hairStrandCurve * length * lerp(-0.55, 0.85, seededRandom(randomIndex, 4));
@@ -564,11 +565,12 @@ function makeHairLock(anchor, params, pose, randomIndex) {
   const side = seededRandom(randomIndex, 2) < smoothstep(0.35, 1, pose.amount)
     ? outwardSide
     : randomSide;
-  const bangsLengthMultiplier = lerp(1, 4, params.hairBangsBias * anchor.sideWeight);
+  const bangsLengthMultiplier = lerp(1, 4, params.hairBangsLength * anchor.sideWeight);
   const length = params.hairLockLength * bangsLengthMultiplier * lerp(0.72, 1.28, seededRandom(randomIndex, 3));
   const width = params.hairLockWidth * lerp(0.72, 1.35, seededRandom(randomIndex, 4));
   const curve = params.hairLockCurve * length * lerp(-0.4, 0.8, seededRandom(randomIndex, 5));
   const asymmetry = (seededRandom(randomIndex, 6) - 0.5) * params.hairLockAsymmetry;
+  const curveType = resolveHairCurveType(params.hairCurveType, randomIndex);
   const outward = {
     x: -anchor.tangent.y * side,
     y: anchor.tangent.x * side
@@ -583,13 +585,28 @@ function makeHairLock(anchor, params, pose, randomIndex) {
   };
   const rootLeft = offsetPoint(anchor.point, anchor.tangent, -width / 2);
   const rootRight = offsetPoint(anchor.point, anchor.tangent, width / 2);
-  const tip = offsetPoint(anchor.point, direction, length);
+  const baseTip = offsetPoint(anchor.point, direction, length);
+  const curveSign = Math.sign(curve) || (seededRandom(randomIndex, 8) < 0.5 ? -1 : 1);
+  const tip = offsetPoint(baseTip, curveNormal, curveSign * params.hairTipHook * width * 0.55);
   const curveOffset = {
     x: curveNormal.x * curve,
     y: curveNormal.y * curve
   };
-  const controlLeft = addPoints(offsetPoint(rootLeft, direction, length * 0.42), curveOffset);
-  const controlRight = addPoints(offsetPoint(rootRight, direction, length * 0.46), curveOffset);
+  const curveControls = makeHairCurveControls({
+    rootLeft,
+    rootRight,
+    tip,
+    direction,
+    tangent: anchor.tangent,
+    normal: curveNormal,
+    curve,
+    length,
+    width,
+    curveType,
+    rhythm: params.hairCurveRhythm,
+    tension: params.hairCurveTension,
+    asymmetry
+  });
   const notchDepth = seededRandom(randomIndex, 7) < 0.38
     ? width * params.hairLockTaper * 0.18
     : 0;
@@ -615,14 +632,70 @@ function makeHairLock(anchor, params, pose, randomIndex) {
     tipLeft,
     tipRight,
     notch,
-    controlLeft,
-    controlRight,
+    ...curveControls,
     detailLines,
     layer: anchor.layer,
     fill: hairColor.fill,
     stroke: hairColor.stroke,
     opacity: 0.94
   };
+}
+
+function makeHairCurveControls({
+  rootLeft,
+  rootRight,
+  tip,
+  direction,
+  tangent,
+  normal,
+  curve,
+  length,
+  width,
+  curveType,
+  rhythm,
+  tension,
+  asymmetry
+}) {
+  const curveSign = Math.sign(curve) || 1;
+  const curveAmount = Math.abs(curve);
+  const rootHandleLength = length * lerp(0.18, 0.42, tension);
+  const tipHandleLength = length * lerp(0.22, 0.55, tension);
+  const rootBend = curveSign * curveAmount * lerp(0.45, 1.15, rhythm);
+  const tipBend = curveSign * curveAmount * (curveType === "s" ? -1 : 1) * lerp(1.1, 0.55, rhythm);
+  const leftRootScale = clamp(1 + asymmetry * 0.65, 0.55, 1.45);
+  const rightRootScale = clamp(1 - asymmetry * 0.65, 0.55, 1.45);
+  const leftTipScale = clamp(1 - asymmetry * 0.35, 0.65, 1.35);
+  const rightTipScale = clamp(1 + asymmetry * 0.35, 0.65, 1.35);
+  const tipSpread = width * 0.08;
+  const leftTipTarget = offsetPoint(tip, tangent, -tipSpread);
+  const rightTipTarget = offsetPoint(tip, tangent, tipSpread);
+
+  return {
+    controlLeft1: addPoints(
+      offsetPoint(rootLeft, direction, rootHandleLength),
+      scalePoint(normal, rootBend * leftRootScale)
+    ),
+    controlLeft2: addPoints(
+      offsetPoint(leftTipTarget, direction, -tipHandleLength),
+      scalePoint(normal, tipBend * leftTipScale)
+    ),
+    controlRight2: addPoints(
+      offsetPoint(rightTipTarget, direction, -tipHandleLength),
+      scalePoint(normal, tipBend * rightTipScale)
+    ),
+    controlRight1: addPoints(
+      offsetPoint(rootRight, direction, rootHandleLength),
+      scalePoint(normal, rootBend * rightRootScale)
+    )
+  };
+}
+
+function resolveHairCurveType(type, randomIndex) {
+  if (type === "c" || type === "s") {
+    return type;
+  }
+
+  return seededRandom(randomIndex, 10) < 0.45 ? "s" : "c";
 }
 
 function makeHairLockDetailLines(rootLeft, rootRight, tip, curveOffset, count, stroke) {
@@ -725,6 +798,13 @@ function addPoints(first, second) {
   return {
     x: first.x + second.x,
     y: first.y + second.y
+  };
+}
+
+function scalePoint(point, amount) {
+  return {
+    x: point.x * amount,
+    y: point.y * amount
   };
 }
 

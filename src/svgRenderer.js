@@ -121,18 +121,18 @@ function renderHairLockPath(lock) {
   if (lock.notch) {
     return [
       `M ${lock.rootLeft.x} ${lock.rootLeft.y}`,
-      `C ${lock.controlLeft.x} ${lock.controlLeft.y} ${lock.controlLeft.x} ${lock.controlLeft.y} ${lock.tipLeft.x} ${lock.tipLeft.y}`,
+      `C ${lock.controlLeft1.x} ${lock.controlLeft1.y} ${lock.controlLeft2.x} ${lock.controlLeft2.y} ${lock.tipLeft.x} ${lock.tipLeft.y}`,
       `L ${lock.notch.x} ${lock.notch.y}`,
       `L ${lock.tipRight.x} ${lock.tipRight.y}`,
-      `C ${lock.controlRight.x} ${lock.controlRight.y} ${lock.controlRight.x} ${lock.controlRight.y} ${lock.rootRight.x} ${lock.rootRight.y}`,
+      `C ${lock.controlRight2.x} ${lock.controlRight2.y} ${lock.controlRight1.x} ${lock.controlRight1.y} ${lock.rootRight.x} ${lock.rootRight.y}`,
       "Z"
     ].join(" ");
   }
 
   return [
     `M ${lock.rootLeft.x} ${lock.rootLeft.y}`,
-    `C ${lock.controlLeft.x} ${lock.controlLeft.y} ${lock.controlLeft.x} ${lock.controlLeft.y} ${lock.tip.x} ${lock.tip.y}`,
-    `C ${lock.controlRight.x} ${lock.controlRight.y} ${lock.controlRight.x} ${lock.controlRight.y} ${lock.rootRight.x} ${lock.rootRight.y}`,
+    `C ${lock.controlLeft1.x} ${lock.controlLeft1.y} ${lock.controlLeft2.x} ${lock.controlLeft2.y} ${lock.tip.x} ${lock.tip.y}`,
+    `C ${lock.controlRight2.x} ${lock.controlRight2.y} ${lock.controlRight1.x} ${lock.controlRight1.y} ${lock.rootRight.x} ${lock.rootRight.y}`,
     "Z"
   ].join(" ");
 }

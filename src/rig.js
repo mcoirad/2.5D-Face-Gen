@@ -1,12 +1,74 @@
 import {
   clamp,
-  createProjector,
   lerp,
   poseSign,
   smoothstep
 } from "./geometry.js";
 
 const FACE_CENTER_Y = 10;
+const DEFAULTS = {
+  lowerFaceWidth: 145,
+  lowerFaceHeight: 126,
+  lowerFaceY: 105,
+  lowerFaceSideShift: 38,
+  eyeY: -35,
+  eyeSize: 18,
+  noseLength: 48,
+  mouthWidth: 70
+};
+const REFERENCE_POSES = {
+  front: {
+    lowerFace: { cx: 0.0269, cy: 0.8788, rx: 0.8411, ry: 0.555 },
+    eyes: [
+      { cx: -0.5407, cy: 0.5635, rx: 0.1845, ry: 0.1822 },
+      { cx: 0.5945, cy: 0.5525, rx: 0.1845, ry: 0.1822 }
+    ],
+    nose: {
+      bridge: [-0.0891, 1.0271],
+      tip: [-0.0008, 1.0551],
+      base: [0.1063, 1.0239]
+    },
+    mouth: {
+      left: [-0.1679, 1.1889],
+      mid: [-0.0197, 1.2605],
+      right: [0.1505, 1.1889]
+    }
+  },
+  threeQuarter: {
+    lowerFace: { cx: -0.0605, cy: 0.8245, rx: 0.8411, ry: 0.555 },
+    eyes: [
+      { cx: -0.6516, cy: 0.5423, rx: 0.1247, ry: 0.1866 },
+      { cx: 0.324, cy: 0.5333, rx: 0.1845, ry: 0.1822 }
+    ],
+    nose: {
+      bridge: [-0.4644, 0.7855],
+      tip: [-0.5254, 0.9462],
+      base: [-0.4136, 1.0265]
+    },
+    mouth: {
+      left: [-0.4424, 1.1501],
+      mid: [-0.2596, 1.2279],
+      right: [-0.1241, 1.1625]
+    }
+  },
+  side: {
+    lowerFace: { cx: -0.4523, cy: 0.976, rx: 0.6469, ry: 0.5582 },
+    eyes: [
+      { cx: -0.5053, cy: 0.5575, rx: 0.1845, ry: 0.1822 },
+      { cx: -0.5053, cy: 0.5575, rx: 0.1845, ry: 0.1822 }
+    ],
+    nose: {
+      bridge: [-1.0627, 0.5257],
+      tip: [-1.2257, 0.8647],
+      base: [-1.1313, 1.1104]
+    },
+    mouth: {
+      left: [-1.1353, 1.1194],
+      mid: [-1.0849, 1.275],
+      right: [-0.8422, 1.1723]
+    }
+  }
+};
 
 export function solveFaceRig(params) {
   const yaw = clamp(params.yaw, -1, 1);
@@ -17,9 +79,8 @@ export function solveFaceRig(params) {
   };
   const turn = smoothstep(0, 1, pose.amount);
   const profile = smoothstep(0.58, 1, pose.amount);
-  const project = createProjector(params, pose);
 
-  const head = solveHead(params, pose, turn, profile);
+  const head = solveHead(params, pose);
 
   return {
     showGuides: params.showGuides,
@@ -29,13 +90,14 @@ export function solveFaceRig(params) {
       profile
     },
     head,
-    features: solveFeatures(params, pose, turn, profile, project, head.structure),
+    features: solveFeatures(params, pose, head.structure),
     visibility: solveVisibility(pose.amount)
   };
 }
 
-function solveHead(params, pose, turn, profile) {
-  const projectStructure = createStructureProjector();
+function solveHead(params, pose) {
+  const projectStructure = createStructureProjector(params);
+  const reference = interpolateReferencePose(pose.amount);
   const skull = {
     cx: 0,
     cy: FACE_CENTER_Y,
@@ -44,10 +106,11 @@ function solveHead(params, pose, turn, profile) {
     z: 0
   };
   const lowerFace = {
-    cx: -pose.sign * params.lowerFaceSideShift * turn,
-    cy: FACE_CENTER_Y + params.lowerFaceY,
-    rx: lerp(params.lowerFaceWidth / 2, params.lowerFaceHeight / 2, profile),
-    ry: params.lowerFaceHeight / 2,
+    cx: pose.sign * reference.lowerFace.cx * skull.rx
+      - pose.sign * (params.lowerFaceSideShift - DEFAULTS.lowerFaceSideShift) * pose.amount,
+    cy: skull.cy + reference.lowerFace.cy * skull.ry + (params.lowerFaceY - DEFAULTS.lowerFaceY),
+    rx: reference.lowerFace.rx * skull.rx * (params.lowerFaceWidth / DEFAULTS.lowerFaceWidth),
+    ry: reference.lowerFace.ry * skull.ry * (params.lowerFaceHeight / DEFAULTS.lowerFaceHeight),
     z: 24
   };
 
@@ -82,19 +145,26 @@ function solveHead(params, pose, turn, profile) {
     structure: {
       skull,
       lowerFace,
+      reference,
       lowerFaceBottomY: lowerFace.cy + lowerFace.ry,
       featureCenterX: lowerFace.cx * 0.32
     }
   };
 }
 
-function createStructureProjector() {
+function createStructureProjector(params) {
+  const cp = Math.cos(params.pitch);
+  const sp = Math.sin(params.pitch);
+
   return function projectStructure(x, y, z = 0) {
+    const y1 = y * cp - z * sp;
+    const z1 = y * sp + z * cp;
+
     return {
       x: 250 + x,
-      y: 250 + y,
+      y: 250 + y1,
       scale: 1,
-      depth: z
+      depth: z1
     };
   };
 }
@@ -120,44 +190,38 @@ function sampleEllipseArc(project, ellipse, startTheta, endTheta, segments) {
   return points;
 }
 
-function solveFeatures(params, pose, turn, profile, project, structure) {
-  const nearSide = pose.sign;
-  const farSide = -pose.sign;
-  const eyeSize = params.eyeSize;
-  const featureCenterX = structure.featureCenterX;
-  const featureSpan = structure.lowerFaceBottomY - params.eyeY;
-  const noseLengthOffset = (params.noseLength - 48) * 0.45;
-  const nearEyeX = featureCenterX + nearSide * lerp(params.eyeSpacing, 42, turn);
-  const farEyeX = featureCenterX + farSide * lerp(params.eyeSpacing, 18, turn);
-  const browY = params.eyeY - 30;
-  const noseX = featureCenterX + pose.sign * lerp(0, 30, turn);
-  const mouthX = featureCenterX + pose.sign * lerp(0, 18, turn);
-  const noseBridgeY = params.eyeY + featureSpan * 0.3;
-  const noseBaseY = params.eyeY + featureSpan * 0.58 + noseLengthOffset;
-  const mouthY = params.eyeY + featureSpan * 0.82;
+function solveFeatures(params, pose, structure) {
+  const projectStructure = createStructureProjector(params);
+  const reference = structure.reference;
+  const eyeScale = params.eyeSize / DEFAULTS.eyeSize;
+  const eyeYOffset = params.eyeY - DEFAULTS.eyeY;
+  const noseYOffset = (params.noseLength - DEFAULTS.noseLength) * 0.45;
+  const mouthScale = params.mouthWidth / DEFAULTS.mouthWidth;
   const showFarFeature = pose.amount < 0.92;
 
   const eyes = [
-    makeEye(project, nearSide, nearEyeX, params.eyeY, eyeSize, lerp(1, 0.8, profile), true),
-    makeEye(project, farSide, farEyeX, params.eyeY + turn * 3, eyeSize, lerp(1, 0.42, turn), showFarFeature)
+    makeReferenceEye(projectStructure, structure.skull, pose.sign, reference.eyes[0], eyeScale, eyeYOffset, true),
+    makeReferenceEye(projectStructure, structure.skull, pose.sign, reference.eyes[1], eyeScale, eyeYOffset, showFarFeature)
   ];
 
+  const browY = reference.eyes[0].cy * structure.skull.ry + structure.skull.cy - 30 + eyeYOffset;
   const brows = [
-    makeBrow(project, nearSide, nearEyeX, browY, params.eyeTilt, lerp(1, 0.82, profile), true),
-    makeBrow(project, farSide, farEyeX, browY + turn * 3, params.eyeTilt, lerp(1, 0.45, turn), showFarFeature)
+    makeBrow(projectStructure, pose.sign, pose.sign * reference.eyes[0].cx * structure.skull.rx, browY, params.eyeTilt, 1, true),
+    makeBrow(projectStructure, -pose.sign, pose.sign * reference.eyes[1].cx * structure.skull.rx, browY, params.eyeTilt, 1, showFarFeature)
   ];
 
+  const noseBase = projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.base, 58, noseYOffset);
   const nose = {
-    bridge: project(noseX, noseBridgeY, 55),
-    tip: project(noseX + pose.sign * lerp(0, 12, turn), noseBaseY, 75),
-    leftNostril: project(noseX - 14, noseBaseY + 10, 58),
-    rightNostril: project(noseX + 14, noseBaseY + 10, 58)
+    bridge: projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.bridge, 55, eyeYOffset * 0.55),
+    tip: projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.tip, 75, noseYOffset),
+    leftNostril: noseBase,
+    rightNostril: noseBase
   };
 
   const mouth = {
-    left: project(mouthX - params.mouthWidth / 2, mouthY, 45),
-    right: project(mouthX + params.mouthWidth / 2, mouthY, 45),
-    mid: project(mouthX, mouthY + params.smile, 60)
+    left: projectMouthPoint(projectStructure, structure.skull, pose.sign, reference.mouth.left, reference.mouth.mid, mouthScale, 45, params.smile * 0.15),
+    right: projectMouthPoint(projectStructure, structure.skull, pose.sign, reference.mouth.right, reference.mouth.mid, mouthScale, 45, params.smile * 0.15),
+    mid: projectMouthPoint(projectStructure, structure.skull, pose.sign, reference.mouth.mid, reference.mouth.mid, mouthScale, 60, params.smile)
   };
 
   return {
@@ -166,6 +230,76 @@ function solveFeatures(params, pose, turn, profile, project, structure) {
     nose,
     mouth
   };
+}
+
+function interpolateReferencePose(amount) {
+  if (amount <= 0.5) {
+    return blendReferencePose(REFERENCE_POSES.front, REFERENCE_POSES.threeQuarter, amount / 0.5);
+  }
+
+  return blendReferencePose(REFERENCE_POSES.threeQuarter, REFERENCE_POSES.side, (amount - 0.5) / 0.5);
+}
+
+function blendReferencePose(fromPose, toPose, amount) {
+  return {
+    lowerFace: blendObject(fromPose.lowerFace, toPose.lowerFace, amount),
+    eyes: fromPose.eyes.map((eye, index) => blendObject(eye, toPose.eyes[index], amount)),
+    nose: {
+      bridge: blendPair(fromPose.nose.bridge, toPose.nose.bridge, amount),
+      tip: blendPair(fromPose.nose.tip, toPose.nose.tip, amount),
+      base: blendPair(fromPose.nose.base, toPose.nose.base, amount)
+    },
+    mouth: {
+      left: blendPair(fromPose.mouth.left, toPose.mouth.left, amount),
+      mid: blendPair(fromPose.mouth.mid, toPose.mouth.mid, amount),
+      right: blendPair(fromPose.mouth.right, toPose.mouth.right, amount)
+    }
+  };
+}
+
+function blendObject(fromObject, toObject, amount) {
+  const blended = {};
+
+  for (const key in fromObject) {
+    blended[key] = lerp(fromObject[key], toObject[key], amount);
+  }
+
+  return blended;
+}
+
+function blendPair(fromPair, toPair, amount) {
+  return [
+    lerp(fromPair[0], toPair[0], amount),
+    lerp(fromPair[1], toPair[1], amount)
+  ];
+}
+
+function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, yOffset, visible) {
+  return {
+    side: poseSignValue,
+    center: projectReferencePoint(project, skull, poseSignValue, [referenceEye.cx, referenceEye.cy], 35, yOffset),
+    rx: referenceEye.rx * skull.rx * scale,
+    ry: referenceEye.ry * skull.ry * scale,
+    pupilRadius: Math.min(referenceEye.rx * skull.rx, referenceEye.ry * skull.ry) * scale / 4,
+    visible
+  };
+}
+
+function projectReferencePoint(project, skull, poseSignValue, referencePoint, z = 0, yOffset = 0) {
+  return project(
+    poseSignValue * referencePoint[0] * skull.rx,
+    skull.cy + referencePoint[1] * skull.ry + yOffset,
+    z
+  );
+}
+
+function projectMouthPoint(project, skull, poseSignValue, referencePoint, referenceMidpoint, scale, z, yOffset) {
+  const scaledPoint = [
+    referenceMidpoint[0] + (referencePoint[0] - referenceMidpoint[0]) * scale,
+    referencePoint[1]
+  ];
+
+  return projectReferencePoint(project, skull, poseSignValue, scaledPoint, z, yOffset);
 }
 
 function makeEye(project, side, x, y, size, widthScale, visible) {

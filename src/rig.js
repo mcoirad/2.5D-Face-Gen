@@ -210,12 +210,12 @@ function solveFeatures(params, pose, structure) {
     makeBrow(projectStructure, -pose.sign, pose.sign * reference.eyes[1].cx * structure.skull.rx, browY, params.eyeTilt, 1, showFarFeature)
   ];
 
-  const noseBase = projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.base, 58, noseYOffset);
+  const nostrils = makeNostrils(projectStructure, structure.skull, pose, reference.nose.base, noseYOffset);
   const nose = {
     bridge: projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.bridge, 55, eyeYOffset * 0.55),
     tip: projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.tip, 75, noseYOffset),
-    leftNostril: noseBase,
-    rightNostril: noseBase
+    leftNostril: nostrils.visible,
+    rightNostril: nostrils.hidden
   };
 
   const mouth = {
@@ -282,6 +282,19 @@ function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, yO
     ry: referenceEye.ry * skull.ry * scale,
     pupilRadius: Math.min(referenceEye.rx * skull.rx, referenceEye.ry * skull.ry) * scale / 4,
     visible
+  };
+}
+
+function makeNostrils(project, skull, pose, referenceBase, yOffset) {
+  const nostrilGap = lerp(0.18, 0.035, pose.amount);
+  const hiddenBase = [
+    referenceBase[0] - nostrilGap,
+    referenceBase[1]
+  ];
+
+  return {
+    visible: projectReferencePoint(project, skull, pose.sign, referenceBase, 58, yOffset),
+    hidden: projectReferencePoint(project, skull, pose.sign, hiddenBase, 58, yOffset)
   };
 }
 

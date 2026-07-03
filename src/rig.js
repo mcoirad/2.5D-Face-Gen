@@ -119,16 +119,19 @@ export function solveFaceRig(params) {
   const profile = smoothstep(0.58, 1, pose.amount);
 
   const head = solveHead(params, pose);
+  const features = solveFeatures(params, pose, head.structure);
 
   return {
     showGuides: params.showGuides,
+    showHelmet: params.showHelmet,
     pose: {
       ...pose,
       turn,
       profile
     },
     head,
-    features: solveFeatures(params, pose, head.structure),
+    helmet: solveHelmet(params, pose, head.structure, features),
+    features,
     visibility: solveVisibility(pose.amount)
   };
 }
@@ -318,6 +321,193 @@ function solveFeatures(params, pose, structure) {
     brows,
     nose,
     mouth
+  };
+}
+
+function solveHelmet(params, pose, structure, features) {
+  if (!params.showHelmet) {
+    return {
+      back: [],
+      front: []
+    };
+  }
+
+  const projectStructure = createStructureProjector(params);
+  const { skull, lowerFace, reference } = structure;
+  const profile = smoothstep(0.55, 1, pose.amount);
+  const farOpacity = 1 - smoothstep(0.45, 0.95, pose.amount);
+
+  const back = [
+    params.showHelmetShell
+      ? {
+          name: "shell",
+          points: makeHelmetShell(projectStructure, skull, pose),
+          fill: "#b7833b",
+          stroke: "black",
+          opacity: 0.95
+        }
+      : null
+  ].filter(Boolean);
+  const front = [
+    params.showHelmetFacePlate
+      ? {
+          name: "face-plate",
+          points: makeHelmetFacePlate(projectStructure, skull, pose),
+          cutouts: makeHelmetEyeOpenings(projectStructure, features.eyes, pose, skull),
+          fill: "#d1a04b",
+          stroke: "black",
+          opacity: 0.96
+        }
+      : null,
+    params.showHelmetFarCheekGuard
+      ? {
+          name: "far-cheek-guard",
+          points: makeHelmetCheekGuard(projectStructure, skull, lowerFace, pose, "far"),
+          fill: "#c08a3f",
+          stroke: "black",
+          opacity: 0.84 * farOpacity
+        }
+      : null,
+    params.showHelmetNearCheekGuard
+      ? {
+          name: "near-cheek-guard",
+          points: makeHelmetCheekGuard(projectStructure, skull, lowerFace, pose, "near"),
+          fill: "#c89443",
+          stroke: "black",
+          opacity: 0.92
+        }
+      : null,
+    params.showHelmetNoseGuard
+      ? {
+          name: "nose-guard",
+          points: makeHelmetNoseGuard(projectStructure, skull, pose, reference, profile),
+          fill: "#d1a04b",
+          stroke: "black",
+          opacity: 0.98
+        }
+      : null
+  ].filter(Boolean);
+
+  return {
+    back,
+    front
+  };
+}
+
+function makeHelmetShell(project, skull, pose) {
+  return [
+    ...sampleHelmetSkullArc(project, skull, pose, 196, 344, 22, 14, -7, -28),
+    ...sampleHelmetSkullArc(project, skull, pose, 344, 196, 10, -13, 18, -18)
+  ];
+}
+
+function makeHelmetFacePlate(project, skull, pose) {
+  return sampleHelmetSkullArc(project, skull, pose, 0, 360, 54, 16, 0, 46);
+}
+
+function makeHelmetEyeOpenings(project, eyes, pose, skull) {
+  return eyes
+    .filter(eye => eye.visible)
+    .map(eye => makeHelmetEyeOpening(project, eye, pose, skull));
+}
+
+function makeHelmetEyeOpening(project, eye, pose, skull) {
+  const profileNarrowing = lerp(1, 0.62, smoothstep(0.55, 1, pose.amount));
+  const width = Math.max(34, eye.rx * 2.35 * profileNarrowing);
+  const height = Math.max(20, eye.ry * 1.75);
+  const { x, y } = eye.center;
+  const bottomLeft = helmetFacePlateBottomPoint(project, skull, x - width * 0.34);
+  const bottomRight = helmetFacePlateBottomPoint(project, skull, x + width * 0.34);
+
+  return [
+    { x: x - width * 0.5, y },
+    { x: x - width * 0.32, y: y - height * 0.5 },
+    { x: x + width * 0.32, y: y - height * 0.5 },
+    { x: x + width * 0.5, y },
+    bottomRight,
+    bottomLeft
+  ];
+}
+
+function helmetFacePlateBottomPoint(project, skull, screenX) {
+  const rx = skull.rx + 16;
+  const ry = skull.ry + 16;
+  const x = clamp(screenX - 250, -rx * 0.96, rx * 0.96);
+  const y = skull.cy + Math.sqrt(1 - (x / rx) ** 2) * ry;
+
+  return project(x, y, 46);
+}
+
+function makeHelmetCheekGuard(project, skull, lowerFace, pose, side) {
+  const direction = side === "near" ? pose.sign : -pose.sign;
+  const sideScale = side === "near" ? 1 : 0.82;
+  const top = skullPolarPoint(skull, direction, 28, 6 * sideScale, 18);
+  const upper = lowerFacePolarPoint(lowerFace, direction, 342, 8 * sideScale, -2);
+  const lower = lowerFacePolarPoint(lowerFace, direction, 45, 2 * sideScale, 8);
+  const tip = lowerFacePolarPoint(lowerFace, direction, 72, -7 * sideScale, 16);
+  const inner = lowerFacePolarPoint(lowerFace, direction, 21, -22 * sideScale, -8);
+
+  return [top, upper, lower, tip, inner].map(point => project(point.x, point.y, 32));
+}
+
+function makeHelmetNoseGuard(project, skull, pose, reference, profile) {
+  const bridge = referenceToModelPoint(skull, pose.sign, reference.nose.bridge, -24);
+  const tip = referenceToModelPoint(skull, pose.sign, reference.nose.tip, 18);
+  const widthTop = lerp(12, 8, profile);
+  const widthTip = lerp(7, 4, profile);
+  const bridgeX = bridge.x + pose.sign * lerp(0, -5, profile);
+  const tipX = tip.x + pose.sign * lerp(0, -10, profile);
+
+  return [
+    project(bridgeX - widthTop, bridge.y, 68),
+    project(bridgeX + widthTop, bridge.y, 68),
+    project(tipX + widthTip, tip.y, 74),
+    project(tipX, tip.y + 18, 76),
+    project(tipX - widthTip, tip.y, 74)
+  ];
+}
+
+function sampleHelmetSkullArc(project, skull, pose, startAngle, endAngle, segments, radiusOffset, yOffset, z) {
+  const points = [];
+  const startTheta = startAngle * Math.PI / 180;
+  let endTheta = endAngle * Math.PI / 180;
+
+  if (endTheta < startTheta) {
+    endTheta += Math.PI * 2;
+  }
+
+  for (let i = 0; i <= segments; i += 1) {
+    const theta = lerp(startTheta, endTheta, i / segments);
+    const point = skullPolarPoint(skull, pose.sign, theta * 180 / Math.PI, radiusOffset, yOffset);
+
+    points.push(project(point.x, point.y, z));
+  }
+
+  return points;
+}
+
+function skullPolarPoint(skull, poseSignValue, angle, radiusOffset, yOffset) {
+  const theta = angle * Math.PI / 180;
+
+  return {
+    x: poseSignValue * Math.cos(theta) * (skull.rx + radiusOffset),
+    y: skull.cy + Math.sin(theta) * (skull.ry + radiusOffset) + yOffset
+  };
+}
+
+function lowerFacePolarPoint(lowerFace, poseSignValue, angle, radiusOffset, yOffset) {
+  const theta = angle * Math.PI / 180;
+
+  return {
+    x: lowerFace.cx + poseSignValue * Math.cos(theta) * (lowerFace.rx + radiusOffset),
+    y: lowerFace.cy + Math.sin(theta) * (lowerFace.ry + radiusOffset) + yOffset
+  };
+}
+
+function referenceToModelPoint(skull, poseSignValue, referencePoint, yOffset = 0) {
+  return {
+    x: poseSignValue * referencePoint[0] * skull.rx,
+    y: skull.cy + referencePoint[1] * skull.ry + yOffset
   };
 }
 

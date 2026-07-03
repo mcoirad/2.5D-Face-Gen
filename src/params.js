@@ -8,6 +8,12 @@ export const defaultParams = {
   lowerFaceY: 105,
   lowerFaceSideShift: 38,
   showGuides: true,
+  showHelmet: true,
+  showHelmetShell: true,
+  showHelmetFacePlate: true,
+  showHelmetFarCheekGuard: true,
+  showHelmetNearCheekGuard: true,
+  showHelmetNoseGuard: true,
   eyeSpacing: 46,
   eyeY: -35,
   eyeSize: 18,
@@ -36,5 +42,11 @@ export const sliderConfig = {
 };
 
 export const toggleConfig = {
-  showGuides: true
+  showGuides: true,
+  showHelmet: true,
+  showHelmetShell: true,
+  showHelmetFacePlate: true,
+  showHelmetFarCheekGuard: true,
+  showHelmetNearCheekGuard: true,
+  showHelmetNoseGuard: true
 };

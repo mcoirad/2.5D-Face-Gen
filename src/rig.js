@@ -4,6 +4,7 @@ import {
   poseSign,
   smoothstep
 } from "./geometry.js";
+import { solveHairV2 } from "./hairV2.js";
 
 const FACE_CENTER_Y = 10;
 const DEFAULTS = {
@@ -137,6 +138,7 @@ export function solveFaceRig(params) {
     },
     head,
     hair: solveHair(params, pose, head.structure),
+    hairV2: params.showHairV2 ? solveHairV2(params, pose, head.structure) : null,
     helmet: solveHelmet(params, pose, head.structure, features),
     features,
     visibility: solveVisibility(pose.amount)
@@ -187,7 +189,7 @@ function solveHead(params, pose) {
   };
 }
 
-function createStructureProjector(params) {
+export function createStructureProjector(params) {
   const cp = Math.cos(params.pitch);
   const sp = Math.sin(params.pitch);
 
@@ -806,7 +808,7 @@ function makeHairLock(anchor, params, pose, randomIndex, mirrorSign = 1) {
   };
 }
 
-function makeHairCurveControls({
+export function makeHairCurveControls({
   rootLeft,
   rootRight,
   tip,
@@ -855,7 +857,7 @@ function makeHairCurveControls({
   };
 }
 
-function resolveHairCurveType(type, randomIndex) {
+export function resolveHairCurveType(type, randomIndex) {
   if (type === "c" || type === "s") {
     return type;
   }
@@ -863,7 +865,7 @@ function resolveHairCurveType(type, randomIndex) {
   return seededRandom(randomIndex, 10) < 0.45 ? "s" : "c";
 }
 
-function makeHairLockDetailLines(rootLeft, rootRight, tip, curveOffset, count, stroke) {
+export function makeHairLockDetailLines(rootLeft, rootRight, tip, curveOffset, count, stroke) {
   if (count <= 0) {
     return [];
   }
@@ -895,8 +897,8 @@ function makeHairLockDetailLines(rootLeft, rootRight, tip, curveOffset, count, s
   });
 }
 
-function resolveHairColor(params) {
-  const fill = isHexColor(params.hairColor) ? params.hairColor : "#2a241e";
+export function resolveHairColor(params, colorKey = "hairColor") {
+  const fill = isHexColor(params[colorKey]) ? params[colorKey] : "#2a241e";
 
   return {
     fill,
@@ -943,7 +945,7 @@ function samplePolyline(points, t) {
   };
 }
 
-function normalizePoint(point) {
+export function normalizePoint(point) {
   const length = Math.hypot(point.x, point.y) || 1;
 
   return {
@@ -952,28 +954,28 @@ function normalizePoint(point) {
   };
 }
 
-function offsetPoint(point, direction, distance) {
+export function offsetPoint(point, direction, distance) {
   return {
     x: point.x + direction.x * distance,
     y: point.y + direction.y * distance
   };
 }
 
-function addPoints(first, second) {
+export function addPoints(first, second) {
   return {
     x: first.x + second.x,
     y: first.y + second.y
   };
 }
 
-function scalePoint(point, amount) {
+export function scalePoint(point, amount) {
   return {
     x: point.x * amount,
     y: point.y * amount
   };
 }
 
-function seededRandom(index, salt) {
+export function seededRandom(index, salt) {
   const value = Math.sin(index * 127.1 + salt * 311.7) * 43758.5453123;
 
   return value - Math.floor(value);

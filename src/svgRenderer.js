@@ -3,6 +3,7 @@ export function renderFaceSvg(rig) {
     <svg viewBox="0 0 500 500" role="img" aria-label="2.5D anime face preview">
       ${renderHelmetLayers(rig.helmet?.back)}
       ${renderHair(rig.hair, "back")}
+      ${renderHairV2(rig.hairV2, "back")}
       ${renderHead(rig.head)}
       ${rig.showGuides ? renderGuides(rig.head.guides) : ""}
       ${rig.features.brows.map(renderBrow).join("")}
@@ -11,6 +12,7 @@ export function renderFaceSvg(rig) {
       ${renderMouth(rig.features.mouth)}
       ${renderHelmetLayers(rig.helmet?.front)}
       ${renderHair(rig.hair, "front")}
+      ${renderHairV2(rig.hairV2, "front")}
     </svg>
   `;
 }
@@ -94,6 +96,43 @@ function renderHair(hair, layer) {
     ${strands}
     ${guides}
     ${anchors}
+  `;
+}
+
+function renderHairV2(hairV2, layer) {
+  if (!hairV2) {
+    return "";
+  }
+
+  const locks = hairV2.locks
+    .filter(item => matchesHairLayer(item, layer))
+    .map(renderHairLock)
+    .join("");
+  const partGuide = layer === "front" && hairV2.showPartGuide
+    ? renderHairV2PartGuide(hairV2.partGuide)
+    : "";
+
+  return `
+    ${locks}
+    ${partGuide}
+  `;
+}
+
+function renderHairV2PartGuide(points) {
+  if (!points?.length || !points.frontFacing) {
+    return "";
+  }
+
+  return `
+    <path
+      d="${renderPointPath(points)}"
+      fill="none"
+      stroke="#c2456b"
+      stroke-width="2.5"
+      stroke-linecap="round"
+      stroke-dasharray="6 4"
+      opacity="0.85"
+    />
   `;
 }
 

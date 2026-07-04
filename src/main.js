@@ -117,6 +117,23 @@ const controlGroups = [
     open: true
   },
   {
+    title: "Hair v2",
+    keys: [
+      "showHairV2",
+      "showHairV2PartGuide",
+      "hairV2Color",
+      "hairV2LockCount",
+      "hairV2LockWidth",
+      "hairV2LockLength",
+      "hairV2PartOffset",
+      "hairV2PartLength",
+      "hairV2PerpBias",
+      "hairV2RadialBias",
+      "hairV2Gravity"
+    ],
+    open: true
+  },
+  {
     title: "Display",
     keys: ["showGuides"],
     open: false

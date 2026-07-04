@@ -52,6 +52,17 @@ export const defaultParams = {
   hairLockGravity: 0.7,
   hairLockAsymmetry: 0.35,
   hairLockDetailLines: 1,
+  showHairV2: false,
+  showHairV2PartGuide: true,
+  hairV2Color: "#2a241e",
+  hairV2LockCount: 28,
+  hairV2LockWidth: 60,
+  hairV2LockLength: 120,
+  hairV2PartOffset: 0,
+  hairV2PartLength: 0.6,
+  hairV2PerpBias: 0.7,
+  hairV2RadialBias: 0.2,
+  hairV2Gravity: 0.5,
   eyeSpacing: 46,
   eyeY: -35,
   eyeSize: 18,
@@ -72,7 +83,7 @@ export const sliderConfig = {
   lowerFaceHeight: [60, 150, 1],
   lowerFaceY: [55, 145, 1],
   lowerFaceSideShift: [0, 100, 1],
-  outlineArcGap: [0.25, 1.8, 0.01],
+  outlineArcGap: [0.9, 1.3, 0.01],
   outlineOuterGap: [0.25, 1.8, 0.01],
   outlineInnerGap: [0.25, 1.8, 0.01],
   eyeSpacing: [25, 70, 1],
@@ -111,7 +122,15 @@ export const sliderConfig = {
   hairTipHook: [0, 1, 0.01],
   hairLockGravity: [0, 1, 0.01],
   hairLockAsymmetry: [0, 1, 0.01],
-  hairLockDetailLines: [0, 3, 1]
+  hairLockDetailLines: [0, 3, 1],
+  hairV2LockCount: [0, 60, 1],
+  hairV2LockWidth: [20, 120, 1],
+  hairV2LockLength: [40, 220, 1],
+  hairV2PartOffset: [-1, 1, 0.01],
+  hairV2PartLength: [0, 1, 0.01],
+  hairV2PerpBias: [0, 1, 0.01],
+  hairV2RadialBias: [0, 1, 0.01],
+  hairV2Gravity: [0, 1, 0.01]
 };
 
 export const selectConfig = {
@@ -134,7 +153,8 @@ export const selectConfig = {
 };
 
 export const colorConfig = {
-  hairColor: true
+  hairColor: true,
+  hairV2Color: true
 };
 
 export const toggleConfig = {
@@ -147,5 +167,7 @@ export const toggleConfig = {
   showHelmetNoseGuard: true,
   showHairStrands: true,
   showHairPartGuide: true,
-  hairMirror: true
+  hairMirror: true,
+  showHairV2: true,
+  showHairV2PartGuide: true
 };

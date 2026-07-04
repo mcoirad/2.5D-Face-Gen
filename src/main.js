@@ -1,11 +1,20 @@
 import { colorConfig, defaultParams, selectConfig, sliderConfig, toggleConfig } from "./params.js";
 import { defaultOutlineLandmarks, solveFaceRig } from "./rig.js";
 import { renderFaceSvg } from "./svgRenderer.js";
+import {
+  deleteFace,
+  listSavedFaceNames,
+  loadFace,
+  loadLastSession,
+  saveFace,
+  saveLastSession
+} from "./storage.js";
 
 const params = {
   ...defaultParams,
   outlineLandmarks: structuredClone(defaultOutlineLandmarks)
 };
+const faceIo = document.getElementById("face-io");
 const controls = document.getElementById("controls");
 const landmarkControls = document.getElementById("landmark-controls");
 const stage = document.getElementById("stage");
@@ -82,6 +91,9 @@ const controlGroups = [
       "hairMalePatternBaldnessBias",
       "hairBangsBias",
       "hairBangsLength",
+      "hairHaircutType",
+      "hairHaircutLength",
+      "hairUndercutBias",
       "hairLockCount",
       "hairLockWidth",
       "hairLockLength",
@@ -115,6 +127,9 @@ function formatControlName(key) {
 }
 
 function createControls() {
+  controls.innerHTML = "";
+  landmarkControls.innerHTML = "";
+
   for (const group of controlGroups) {
     const groupElement = createControlGroup(group);
 
@@ -364,9 +379,123 @@ function setLandmarkValue(poseKey, pointKey, index, field, value) {
   point[Number(field)] = value;
 }
 
-function render() {
-  stage.innerHTML = renderFaceSvg(solveFaceRig(params));
+function applyParams(snapshot) {
+  const restored = {
+    ...defaultParams,
+    ...snapshot,
+    outlineLandmarks: snapshot.outlineLandmarks
+      ? structuredClone(snapshot.outlineLandmarks)
+      : structuredClone(defaultOutlineLandmarks)
+  };
+
+  Object.assign(params, restored);
 }
 
+function rebuildControls() {
+  createControls();
+  render();
+}
+
+function createFaceIo() {
+  const panel = document.createElement("details");
+  panel.className = "face-io";
+  panel.open = true;
+  panel.innerHTML = `
+    <summary>Faces</summary>
+    <div class="face-io-content">
+      <div class="face-io-row">
+        <input type="text" id="face-save-name" placeholder="Face name" autocomplete="off">
+        <button type="button" id="face-save">Save</button>
+      </div>
+      <div class="face-io-row">
+        <select id="face-list"></select>
+        <button type="button" id="face-load">Load</button>
+        <button type="button" id="face-delete">Delete</button>
+      </div>
+    </div>
+  `;
+
+  faceIo.appendChild(panel);
+
+  const nameInput = panel.querySelector("#face-save-name");
+  const list = panel.querySelector("#face-list");
+
+  panel.querySelector("#face-save").addEventListener("click", () => {
+    const name = nameInput.value.trim();
+
+    if (!name) {
+      return;
+    }
+
+    saveFace(name, params);
+    nameInput.value = "";
+    renderFaceList(list, name);
+  });
+
+  panel.querySelector("#face-load").addEventListener("click", () => {
+    const name = list.value;
+    const snapshot = name ? loadFace(name) : null;
+
+    if (!snapshot) {
+      return;
+    }
+
+    applyParams(snapshot);
+    rebuildControls();
+  });
+
+  panel.querySelector("#face-delete").addEventListener("click", () => {
+    const name = list.value;
+
+    if (!name) {
+      return;
+    }
+
+    deleteFace(name);
+    renderFaceList(list);
+  });
+
+  renderFaceList(list);
+}
+
+function renderFaceList(list, selectedName = null) {
+  const names = listSavedFaceNames();
+
+  list.innerHTML = "";
+
+  if (!names.length) {
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    placeholder.textContent = "No saved faces";
+    list.appendChild(placeholder);
+    return;
+  }
+
+  for (const name of names) {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    list.appendChild(option);
+  }
+
+  if (selectedName && names.includes(selectedName)) {
+    list.value = selectedName;
+  }
+}
+
+function render() {
+  stage.innerHTML = renderFaceSvg(solveFaceRig(params));
+  saveLastSession(params);
+}
+
+const lastSession = loadLastSession();
+
+if (lastSession) {
+  applyParams(lastSession);
+}
+
+createFaceIo();
 createControls();
 render();

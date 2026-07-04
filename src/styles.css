@@ -34,6 +34,48 @@ label {
   font-size: 0.95rem;
 }
 
+.face-io {
+  border: 1px solid #d7d7d3;
+  background: #fafaf8;
+  margin-bottom: 10px;
+}
+
+.face-io summary {
+  cursor: pointer;
+  font-weight: 650;
+  padding: 8px 10px;
+}
+
+.face-io-content {
+  border-top: 1px solid #e4e4df;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.face-io-row {
+  display: flex;
+  gap: 6px;
+}
+
+.face-io-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  min-height: 30px;
+}
+
+.face-io-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.face-io-row button {
+  cursor: pointer;
+  min-height: 30px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
 .control-group {
   border: 1px solid #d7d7d3;
   background: #fafaf8;

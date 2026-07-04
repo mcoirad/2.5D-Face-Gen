@@ -470,6 +470,33 @@ function filterCoveredAnchors(anchors, salt) {
   return anchors.filter(anchor => seededRandom(anchor.guideIndex * 41 + anchor.pointIndex * 13, salt) <= anchor.coverage);
 }
 
+function haircutWeight(sideWeight, haircutType) {
+  return haircutType >= 0
+    ? 1 - haircutType * (1 - sideWeight)
+    : 1 + haircutType * sideWeight;
+}
+
+function applyHaircut(anchor, direction, rawLength, params) {
+  const cutWeight = haircutWeight(anchor.sideWeight, params.hairHaircutType);
+  let targetLength = rawLength;
+
+  if (cutWeight > 0) {
+    const cutoffY = params.hairHaircutLength;
+    const naturalTipY = anchor.point.y + direction.y * rawLength;
+
+    if (naturalTipY > cutoffY) {
+      targetLength = direction.y > 0.001
+        ? clamp((cutoffY - anchor.point.y) / direction.y, 0, rawLength)
+        : 0;
+    }
+  }
+
+  const cutLength = lerp(rawLength, targetLength, cutWeight);
+  const undercutMultiplier = lerp(1, 0.15, params.hairUndercutBias * anchor.guidePosition);
+
+  return cutLength * undercutMultiplier;
+}
+
 function makeHairStrand(anchor, params, pose, randomIndex) {
   const hairColor = resolveHairColor(params);
   const t = anchor.guidePosition;
@@ -479,11 +506,6 @@ function makeHairStrand(anchor, params, pose, randomIndex) {
   const side = seededRandom(randomIndex, 6) < smoothstep(0.35, 1, pose.amount)
     ? outwardSide
     : randomSide;
-  const bangsLengthMultiplier = lerp(1, 4, params.hairBangsLength * anchor.sideWeight);
-  const length = params.hairStrandLength * bangsLengthMultiplier * lerp(0.62, 1.38, seededRandom(randomIndex, 2));
-  const thickness = params.hairStrandThickness * lerp(0.55, 1.45, seededRandom(randomIndex, 3));
-  const curve = params.hairStrandCurve * length * lerp(-0.55, 0.85, seededRandom(randomIndex, 4));
-  const splitCurve = seededRandom(randomIndex, 7) < params.hairStrandSplitCurve;
   const frontDownWeight = (1 - t) * (1 - params.hairDownBias) * 0.55;
   const downWeight = clamp(params.hairDownBias + frontDownWeight, 0, 1);
   const wildVertical = lerp(-0.55, 0.4, seededRandom(randomIndex, 5)) * (1 - params.hairDownBias) * t;
@@ -495,6 +517,12 @@ function makeHairStrand(anchor, params, pose, randomIndex) {
     x: outward.x * (1 - downWeight),
     y: outward.y * (1 - downWeight) + downWeight + wildVertical
   });
+  const bangsLengthMultiplier = lerp(1, 4, params.hairBangsLength * anchor.sideWeight);
+  const rawLength = params.hairStrandLength * bangsLengthMultiplier * lerp(0.62, 1.38, seededRandom(randomIndex, 2));
+  const length = applyHaircut(anchor, direction, rawLength, params);
+  const thickness = params.hairStrandThickness * lerp(0.55, 1.45, seededRandom(randomIndex, 3));
+  const curve = params.hairStrandCurve * length * lerp(-0.55, 0.85, seededRandom(randomIndex, 4));
+  const splitCurve = seededRandom(randomIndex, 7) < params.hairStrandSplitCurve;
   const curveNormal = {
     x: -direction.y,
     y: direction.x
@@ -565,12 +593,7 @@ function makeHairLock(anchor, params, pose, randomIndex) {
   const side = seededRandom(randomIndex, 2) < smoothstep(0.35, 1, pose.amount)
     ? outwardSide
     : randomSide;
-  const bangsLengthMultiplier = lerp(1, 4, params.hairBangsLength * anchor.sideWeight);
-  const length = params.hairLockLength * bangsLengthMultiplier * lerp(0.72, 1.28, seededRandom(randomIndex, 3));
-  const width = params.hairLockWidth * lerp(0.72, 1.35, seededRandom(randomIndex, 4));
-  const curve = params.hairLockCurve * length * lerp(-0.4, 0.8, seededRandom(randomIndex, 5));
   const asymmetry = (seededRandom(randomIndex, 6) - 0.5) * params.hairLockAsymmetry;
-  const curveType = resolveHairCurveType(params.hairCurveType, randomIndex);
   const outward = {
     x: -anchor.tangent.y * side,
     y: anchor.tangent.x * side
@@ -579,6 +602,12 @@ function makeHairLock(anchor, params, pose, randomIndex) {
     x: outward.x * (1 - params.hairLockGravity) + asymmetry * anchor.sideWeight,
     y: outward.y * (1 - params.hairLockGravity) + params.hairLockGravity
   });
+  const bangsLengthMultiplier = lerp(1, 4, params.hairBangsLength * anchor.sideWeight);
+  const rawLength = params.hairLockLength * bangsLengthMultiplier * lerp(0.72, 1.28, seededRandom(randomIndex, 3));
+  const length = applyHaircut(anchor, direction, rawLength, params);
+  const width = params.hairLockWidth * lerp(0.72, 1.35, seededRandom(randomIndex, 4));
+  const curve = params.hairLockCurve * length * lerp(-0.4, 0.8, seededRandom(randomIndex, 5));
+  const curveType = resolveHairCurveType(params.hairCurveType, randomIndex);
   const curveNormal = {
     x: -direction.y,
     y: direction.x

@@ -17,6 +17,9 @@ const FRONT_HAIRLINE_THETA = -0.30 * Math.PI;
 const BACK_HAIRLINE_THETA = 0.16 * Math.PI;
 // Longitude half-range in units of (PI/2): 2 == full 180deg to the back.
 const U_RANGE = 2;
+// Lowest latitude a lock root sits at. Kept just off the crown (v=0), where all
+// meridians collapse to a single point, so the top row still has horizontal spread.
+const V_MIN = 0.05;
 // Latitude the part line is centered on.
 const PART_MID_V = 0.45;
 // z depth magnitude for the scalp surface (matches the v1 guide depth).
@@ -35,8 +38,15 @@ export function solveHairV2(params, pose, structure) {
   const color = resolveHairColor(params, "hairV2Color");
   const locks = [];
 
+  // Stratified placement: cover the (u, v) map with a jittered grid so locks are
+  // spread evenly instead of clumping and leaving bald spots. u is the wide axis
+  // (around the head), so use more columns than rows.
+  const rows = Math.max(2, Math.round(Math.sqrt(count / 3)));
+  const cols = Math.max(1, Math.ceil(count / rows));
+
   for (let i = 0; i < count; i += 1) {
-    locks.push(makeV2Lock(i, scalp, partU, partHalf, midpoint, params, color));
+    const { u, v } = stratifiedUV(i, cols, rows);
+    locks.push(makeV2Lock(i, u, v, scalp, partU, partHalf, midpoint, params, color));
   }
 
   return {
@@ -70,9 +80,17 @@ function scalpPoint(u, v, projectStructure, skull, pose) {
   };
 }
 
-function makeV2Lock(index, scalp, partU, partHalf, midpoint, params, color) {
-  const u = lerp(-U_RANGE, U_RANGE, seededRandom(index, 1));
-  const v = clamp(lerp(0, 1, seededRandom(index, 2)), 0, 1);
+// One jittered cell of a cols x rows grid over the (u, v) scalp map.
+function stratifiedUV(index, cols, rows) {
+  const cellU = index % cols;
+  const cellV = Math.floor(index / cols) % rows;
+  const u = lerp(-U_RANGE, U_RANGE, (cellU + seededRandom(index, 11)) / cols);
+  const v = clamp(lerp(V_MIN, 1, (cellV + seededRandom(index, 12)) / rows), 0, 1);
+
+  return { u, v };
+}
+
+function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color) {
   const base = scalp(u, v);
 
   // Screen-space direction of increasing u, via finite difference of the surface.

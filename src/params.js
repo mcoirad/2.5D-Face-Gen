@@ -55,7 +55,7 @@ export const defaultParams = {
   showHairV2: false,
   showHairV2PartGuide: true,
   hairV2Color: "#2a241e",
-  hairV2LockCount: 28,
+  hairV2LockCount: 40,
   hairV2LockWidth: 60,
   hairV2LockLength: 120,
   hairV2PartOffset: 0,

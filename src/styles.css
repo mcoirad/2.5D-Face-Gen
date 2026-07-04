@@ -76,6 +76,19 @@ label {
   white-space: nowrap;
 }
 
+.randomizer-control {
+  border: 1px solid #d7d7d3;
+  background: #fafaf8;
+  margin-bottom: 10px;
+  padding: 10px;
+}
+
+.randomizer-control button {
+  width: 100%;
+  min-height: 32px;
+  cursor: pointer;
+}
+
 .control-group {
   border: 1px solid #d7d7d3;
   background: #fafaf8;

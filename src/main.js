@@ -129,6 +129,7 @@ function formatControlName(key) {
 function createControls() {
   controls.innerHTML = "";
   landmarkControls.innerHTML = "";
+  controls.appendChild(createRandomizerControl());
 
   for (const group of controlGroups) {
     const groupElement = createControlGroup(group);
@@ -139,6 +140,41 @@ function createControls() {
   }
 
   createLandmarkEditor();
+}
+
+function createRandomizerControl() {
+  const wrapper = document.createElement("div");
+  wrapper.className = "randomizer-control";
+  wrapper.innerHTML = `
+    <button type="button">Randomize sliders</button>
+  `;
+
+  wrapper.querySelector("button").addEventListener("click", () => {
+    randomizeSliderParams();
+    rebuildControls();
+  });
+
+  return wrapper;
+}
+
+function randomizeSliderParams() {
+  for (const [key, [min, max, step]] of Object.entries(sliderConfig)) {
+    params[key] = randomSliderValue(min, max, step);
+  }
+}
+
+function randomSliderValue(min, max, step) {
+  const steps = Math.round((max - min) / step);
+  const value = min + Math.floor(Math.random() * (steps + 1)) * step;
+  const precision = decimalPrecision(step);
+
+  return Number(Math.min(max, Math.max(min, value)).toFixed(precision));
+}
+
+function decimalPrecision(value) {
+  const text = String(value);
+
+  return text.includes(".") ? text.split(".")[1].length : 0;
 }
 
 function createControlGroup(group) {

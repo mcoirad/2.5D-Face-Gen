@@ -2,7 +2,9 @@ import { colorConfig, defaultParams, selectConfig, sliderConfig, toggleConfig } 
 import { defaultOutlineLandmarks, solveFaceRig } from "./rig.js";
 import { renderFaceSvg } from "./svgRenderer.js";
 import {
+  createFaceArchive,
   deleteFace,
+  importFaceArchive,
   listSavedFaceNames,
   loadFace,
   loadLastSession,
@@ -486,6 +488,12 @@ function createFaceIo() {
         <button type="button" id="face-load">Load</button>
         <button type="button" id="face-delete">Delete</button>
       </div>
+      <div class="face-io-row">
+        <button type="button" id="face-export">Export JSON</button>
+        <button type="button" id="face-import">Import JSON</button>
+        <input type="file" id="face-import-file" accept="application/json,.json">
+      </div>
+      <div class="face-io-status" id="face-io-status" aria-live="polite"></div>
     </div>
   `;
 
@@ -493,6 +501,8 @@ function createFaceIo() {
 
   const nameInput = panel.querySelector("#face-save-name");
   const list = panel.querySelector("#face-list");
+  const importFile = panel.querySelector("#face-import-file");
+  const status = panel.querySelector("#face-io-status");
 
   panel.querySelector("#face-save").addEventListener("click", () => {
     const name = nameInput.value.trim();
@@ -529,7 +539,55 @@ function createFaceIo() {
     renderFaceList(list);
   });
 
+  panel.querySelector("#face-export").addEventListener("click", () => {
+    exportFacesJson();
+    status.textContent = "Exported saved faces.";
+  });
+
+  panel.querySelector("#face-import").addEventListener("click", () => {
+    importFile.click();
+  });
+
+  importFile.addEventListener("change", async () => {
+    const [file] = importFile.files;
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const result = importFaceArchive(JSON.parse(text));
+
+      if (!result.ok) {
+        status.textContent = "Import failed.";
+        return;
+      }
+
+      renderFaceList(list);
+      status.textContent = `Imported ${result.count} saved face${result.count === 1 ? "" : "s"}.`;
+    } catch (error) {
+      status.textContent = "Import failed.";
+    } finally {
+      importFile.value = "";
+    }
+  });
+
   renderFaceList(list);
+}
+
+function exportFacesJson() {
+  const archive = createFaceArchive(params);
+  const blob = new Blob([JSON.stringify(archive, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = `test-face-saves-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function renderFaceList(list, selectedName = null) {

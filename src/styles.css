@@ -76,6 +76,16 @@ label {
   white-space: nowrap;
 }
 
+#face-import-file {
+  display: none;
+}
+
+.face-io-status {
+  min-height: 1rem;
+  font-size: 0.82rem;
+  color: #555;
+}
+
 .randomizer-control {
   border: 1px solid #d7d7d3;
   background: #fafaf8;

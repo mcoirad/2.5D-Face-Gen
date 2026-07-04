@@ -112,6 +112,11 @@ export const defaultOutlineLandmarks = {
 
 const HAIR_MIRROR_GUIDES = [4, 3, 2, 1, 0, 7, 6, 5];
 const HAIR_MIRROR_SOURCE_GUIDES = [0, 1, 2, 5, 6];
+const OUTLINE_UPPER_ARC_POINT_COUNT = 19;
+// Profile outline tuning: when the first protruding feature would pull the
+// preceding lower-face point into a strong inward notch, drop that lower point
+// and retry. This keeps nose landmarks available while removing bad connectors.
+const PROFILE_LOWER_CONCAVITY_LIMIT = 60 * Math.PI / 180;
 
 export function solveFaceRig(params) {
   const yaw = clamp(params.yaw, -1, 1);
@@ -285,31 +290,183 @@ function lowerEllipseLandmark(lowerFace, landmark, index, pose, params, skull) {
   };
 }
 
+function pruneConcaveLowerLandmarks(points) {
+  let pruned = [...points];
+  let changed = true;
+
+  while (changed && pruned.length > 3) {
+    changed = false;
+    const winding = polygonSignedArea(pruned);
+
+    if (Math.abs(winding) < 0.001) {
+      return pruned;
+    }
+
+    const windingSign = Math.sign(winding);
+    const nextPruned = [];
+
+    for (let index = 0; index < pruned.length; index += 1) {
+      const previous = pruned[(index - 1 + pruned.length) % pruned.length];
+      const point = pruned[index];
+      const next = pruned[(index + 1) % pruned.length];
+      const turn = signedTurn(previous, point, next);
+
+      if (turn !== 0 && Math.sign(turn) !== windingSign) {
+        changed = true;
+        continue;
+      }
+
+      nextPruned.push(point);
+    }
+
+    pruned = nextPruned;
+  }
+
+  return pruned;
+}
+
+function signedTurn(previous, point, next) {
+  return (point.x - previous.x) * (next.y - point.y)
+    - (point.y - previous.y) * (next.x - point.x);
+}
+
+function polygonSignedArea(points) {
+  let area = 0;
+
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index];
+    const next = points[(index + 1) % points.length];
+
+    area += point.x * next.y - next.x * point.y;
+  }
+
+  return area / 2;
+}
+
 // When the head turns toward profile, the nose and mouth can protrude past the
 // jaw/cheek outline. This extends the front of the outline to include those
-// points whenever they fall outside the base polygon, so the profile silhouette
-// picks up the nose and mouth instead of clipping them. The base outline ends
-// with lower1..lower5; the front run of the closed loop is lower4 -> lower5 ->
-// arcStart. We drop lower5 and splice the outside points in bottom-to-top order
-// (mouth -> nose base -> nose tip -> nose bridge) between lower4 and arcStart.
+// points whenever they fall outside the base polygon and can be connected
+// without crossing the existing outline. The base outline ends with
+// lower1..lower5; the front run of the closed loop is lower4 -> lower5 ->
+// arcStart. We drop lower5 only when at least one profile point can safely
+// replace it.
 function extendOutlineWithProfile(outline, features) {
+  const mouth = outlinePoint(features.mouth.mid);
+  const mouthProtrudes = !pointInPolygon(mouth, outline);
+  const outlineForExtension = outline;
   const candidates = [
-    features.mouth.mid,
-    features.nose.leftNostril,
-    features.nose.tip,
-    features.nose.bridge
+    ...(mouthProtrudes ? [mouth] : []),
+    outlinePoint(features.nose.leftNostril),
+    outlinePoint(features.nose.tip),
+    outlinePoint(features.nose.bridge)
   ];
-  const protruding = candidates.filter(point => !pointInPolygon(point, outline));
+  const protruding = candidates.filter(point => !pointInPolygon(point, outlineForExtension));
 
   if (!protruding.length) {
     return outline;
   }
 
-  // Drop lower5 (last vertex) and append the protruding front points after lower4.
-  return [
-    ...outline.slice(0, -1),
-    ...protruding.map(point => ({ x: point.x, y: point.y, scale: 1, depth: 0 }))
-  ];
+  const baseOutline = outlineForExtension.slice(0, -1);
+  let extendedOutline = baseOutline;
+  let addedProfilePoint = false;
+
+  for (const point of protruding) {
+    const repairedPoints = dropStrongProfileConnectorConcavity(extendedOutline, point);
+    const nextPoints = [...repairedPoints, point];
+
+    if (!polygonSelfIntersects(nextPoints)) {
+      extendedOutline = nextPoints;
+      addedProfilePoint = true;
+    }
+  }
+
+  return addedProfilePoint ? extendedOutline : outline;
+}
+
+function outlinePoint(point) {
+  return { x: point.x, y: point.y, scale: 1, depth: 0 };
+}
+
+function dropStrongProfileConnectorConcavity(points, candidate) {
+  let repaired = points;
+
+  while (
+    repaired.length > OUTLINE_UPPER_ARC_POINT_COUNT + 3
+    && createsStrongProfileConnectorConcavity(repaired, candidate)
+  ) {
+    repaired = repaired.slice(0, -1);
+  }
+
+  return repaired;
+}
+
+function createsStrongProfileConnectorConcavity(points, candidate) {
+  const previous = points[points.length - 2];
+  const lowerPoint = points[points.length - 1];
+  const turn = signedTurnAngle(previous, lowerPoint, candidate);
+  const winding = Math.sign(polygonSignedArea([...points, candidate]));
+
+  return winding !== 0
+    && Math.sign(turn) !== 0
+    && Math.sign(turn) !== winding
+    && Math.abs(turn) > PROFILE_LOWER_CONCAVITY_LIMIT;
+}
+
+function signedTurnAngle(previous, point, next) {
+  const incoming = {
+    x: point.x - previous.x,
+    y: point.y - previous.y
+  };
+  const outgoing = {
+    x: next.x - point.x,
+    y: next.y - point.y
+  };
+
+  return Math.atan2(
+    incoming.x * outgoing.y - incoming.y * outgoing.x,
+    incoming.x * outgoing.x + incoming.y * outgoing.y
+  );
+}
+
+function polygonSelfIntersects(points) {
+  for (let firstIndex = 0; firstIndex < points.length; firstIndex += 1) {
+    const firstStart = points[firstIndex];
+    const firstEnd = points[(firstIndex + 1) % points.length];
+
+    for (let secondIndex = firstIndex + 1; secondIndex < points.length; secondIndex += 1) {
+      if (segmentsAreAdjacent(firstIndex, secondIndex, points.length)) {
+        continue;
+      }
+
+      const secondStart = points[secondIndex];
+      const secondEnd = points[(secondIndex + 1) % points.length];
+
+      if (segmentsIntersect(firstStart, firstEnd, secondStart, secondEnd)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function segmentsAreAdjacent(firstIndex, secondIndex, pointCount) {
+  return firstIndex === secondIndex
+    || (firstIndex + 1) % pointCount === secondIndex
+    || (secondIndex + 1) % pointCount === firstIndex;
+}
+
+function segmentsIntersect(a, b, c, d) {
+  const first = orientation(a, b, c);
+  const second = orientation(a, b, d);
+  const third = orientation(c, d, a);
+  const fourth = orientation(c, d, b);
+
+  return first * second < 0 && third * fourth < 0;
+}
+
+function orientation(a, b, c) {
+  return Math.sign((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
 }
 
 function pointInPolygon(point, polygon) {

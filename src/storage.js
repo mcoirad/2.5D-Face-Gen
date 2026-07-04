@@ -28,8 +28,52 @@ function readSaves() {
   return saves && typeof saves === "object" ? saves : {};
 }
 
+function normalizeImportedSaves(payload) {
+  const saves = payload?.saves && typeof payload.saves === "object"
+    ? payload.saves
+    : payload;
+
+  if (!saves || Array.isArray(saves) || typeof saves !== "object") {
+    return null;
+  }
+
+  return Object.fromEntries(
+    Object.entries(saves).filter(([, value]) => (
+      value && !Array.isArray(value) && typeof value === "object"
+    ))
+  );
+}
+
 export function listSavedFaceNames() {
   return Object.keys(readSaves()).sort((a, b) => a.localeCompare(b));
+}
+
+export function createFaceArchive(currentParams) {
+  return {
+    format: "test-face-saves",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    currentFace: snapshot(currentParams),
+    saves: readSaves()
+  };
+}
+
+export function importFaceArchive(payload) {
+  const importedSaves = normalizeImportedSaves(payload);
+
+  if (!importedSaves) {
+    return { ok: false, count: 0 };
+  }
+
+  const saves = {
+    ...readSaves(),
+    ...importedSaves
+  };
+
+  return {
+    ok: writeStore(SAVES_KEY, saves),
+    count: Object.keys(importedSaves).length
+  };
 }
 
 export function saveFace(name, params) {

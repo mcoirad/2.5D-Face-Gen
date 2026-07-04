@@ -258,12 +258,24 @@ function renderEye(eye, index) {
 
   const path = renderEyePath(eye);
   const clipId = `eye-clip-${index}`;
+  const irisClipId = `iris-clip-${index}`;
+  const gradId = `iris-grad-${index}`;
+  const { iris, pupil, shine } = eye;
+  const irisFill = eye.irisGradient ? `url(#${gradId})` : eye.irisColor;
 
   return `
     <defs>
       <clipPath id="${clipId}">
         <path d="${path}" />
       </clipPath>
+      <clipPath id="${irisClipId}">
+        <circle cx="${iris.cx}" cy="${iris.cy}" r="${iris.r}" />
+      </clipPath>
+      ${eye.irisGradient ? `
+      <radialGradient id="${gradId}" cx="0.5" cy="0.5" r="0.5">
+        <stop offset="0" stop-color="${lightenHex(eye.irisColor, 0.5)}" />
+        <stop offset="1" stop-color="${eye.irisColor}" />
+      </radialGradient>` : ""}
     </defs>
     <path
       d="${path}"
@@ -273,40 +285,32 @@ function renderEye(eye, index) {
       stroke-linejoin="round"
     />
     <g clip-path="url(#${clipId})">
-      <ellipse
-        cx="${eye.center.x}"
-        cy="${eye.center.y}"
-        rx="${eye.irisRadius * eye.center.scale}"
-        ry="${eye.irisRadius * eye.center.scale}"
-        fill="#8a8f8f"
-        stroke="black"
-        stroke-width="1.5"
-      />
-      <ellipse
-        cx="${eye.center.x}"
-        cy="${eye.center.y}"
-        rx="${eye.pupilRadius * eye.center.scale}"
-        ry="${eye.pupilRadius * eye.center.scale}"
-        fill="black"
-      />
+      <circle cx="${iris.cx}" cy="${iris.cy}" r="${iris.r}" fill="${irisFill}" stroke="black" stroke-width="1.5" />
+      <circle cx="${pupil.cx}" cy="${pupil.cy}" r="${pupil.r}" fill="black" />
+      ${shine ? `<g clip-path="url(#${irisClipId})"><circle cx="${shine.cx}" cy="${shine.cy}" r="${shine.r}" fill="white" /></g>` : ""}
     </g>
   `;
 }
 
 function renderEyePath(eye) {
-  const rx = eye.rx * eye.center.scale;
-  const upperOpen = eye.upperOpen * eye.center.scale;
-  const lowerOpen = eye.lowerOpen * eye.center.scale;
-  const leftX = eye.center.x - rx;
-  const rightX = eye.center.x + rx;
-  const centerY = eye.center.y;
+  const { topInner, topOuter, bottomOuter, bottomInner, topControl, bottomControl } = eye.quad;
 
   return [
-    `M ${leftX} ${centerY}`,
-    `Q ${eye.center.x} ${centerY - upperOpen} ${rightX} ${centerY}`,
-    `Q ${eye.center.x} ${centerY + lowerOpen} ${leftX} ${centerY}`,
+    `M ${topInner.x} ${topInner.y}`,
+    `Q ${topControl.x} ${topControl.y} ${topOuter.x} ${topOuter.y}`,
+    `L ${bottomOuter.x} ${bottomOuter.y}`,
+    `Q ${bottomControl.x} ${bottomControl.y} ${bottomInner.x} ${bottomInner.y}`,
     "Z"
   ].join(" ");
+}
+
+function lightenHex(value, amount) {
+  const numeric = Number.parseInt(value.slice(1), 16);
+  const channels = [(numeric >> 16) & 255, (numeric >> 8) & 255, numeric & 255];
+
+  return `#${channels
+    .map(channel => Math.round(channel + (255 - channel) * amount).toString(16).padStart(2, "0"))
+    .join("")}`;
 }
 
 function renderNose(nose) {

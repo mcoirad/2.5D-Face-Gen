@@ -69,6 +69,18 @@ export const defaultParams = {
   eyeUpperOpen: 1,
   eyeLowerOpen: 1,
   eyeTilt: 0,
+  eyeTopCurve: 0.55,
+  eyeBottomCurve: 0.4,
+  eyeTrapezoid: 0,
+  eyeOuterCornerOut: 0,
+  eyeOuterCornerUp: 0,
+  eyeRotation: 0,
+  eyeIrisSize: 11,
+  eyePupilSize: 5,
+  eyeIrisColor: "#5b4433",
+  eyeIrisGradient: true,
+  eyeShine: true,
+  eyeShineSize: 0.35,
   noseLength: 48,
   mouthWidth: 70,
   smile: 0
@@ -92,6 +104,15 @@ export const sliderConfig = {
   eyeUpperOpen: [0.1, 2, 0.01],
   eyeLowerOpen: [0.1, 2, 0.01],
   eyeTilt: [-0.6, 0.6, 0.01],
+  eyeTopCurve: [0, 1, 0.01],
+  eyeBottomCurve: [0, 1, 0.01],
+  eyeTrapezoid: [-1, 1, 0.01],
+  eyeOuterCornerOut: [0, 1, 0.01],
+  eyeOuterCornerUp: [0, 1, 0.01],
+  eyeRotation: [-0.5, 0.5, 0.01],
+  eyeIrisSize: [4, 20, 0.5],
+  eyePupilSize: [1, 14, 0.5],
+  eyeShineSize: [0, 0.6, 0.01],
   noseLength: [20, 80, 1],
   mouthWidth: [30, 110, 1],
   smile: [-35, 35, 1],
@@ -154,7 +175,8 @@ export const selectConfig = {
 
 export const colorConfig = {
   hairColor: true,
-  hairV2Color: true
+  hairV2Color: true,
+  eyeIrisColor: true
 };
 
 export const toggleConfig = {
@@ -169,5 +191,7 @@ export const toggleConfig = {
   showHairPartGuide: true,
   hairMirror: true,
   showHairV2: true,
-  showHairV2PartGuide: true
+  showHairV2PartGuide: true,
+  eyeIrisGradient: true,
+  eyeShine: true
 };

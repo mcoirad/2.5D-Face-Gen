@@ -493,17 +493,13 @@ function solveFeatures(params, pose, structure) {
   const reference = structure.reference;
   const eyeScale = params.eyeSize / DEFAULTS.eyeSize;
   const eyeYOffset = params.eyeY - DEFAULTS.eyeY;
-  const eyeShape = {
-    upperOpen: params.eyeUpperOpen / DEFAULTS.eyeUpperOpen,
-    lowerOpen: params.eyeLowerOpen / DEFAULTS.eyeLowerOpen
-  };
   const referenceEyes = spaceReferenceEyes(reference.eyes, params.eyeSpacing / DEFAULTS.eyeSpacing);
   const noseYOffset = (params.noseLength - DEFAULTS.noseLength) * 0.45;
   const mouthScale = params.mouthWidth / DEFAULTS.mouthWidth;
 
   const eyes = [
-    makeReferenceEye(projectStructure, structure.skull, pose.sign, referenceEyes[0], eyeScale, eyeShape, eyeYOffset, true),
-    makeReferenceEye(projectStructure, structure.skull, pose.sign, referenceEyes[1], eyeScale, eyeShape, eyeYOffset, true)
+    makeReferenceEye(projectStructure, structure.skull, pose.sign, referenceEyes[0], eyeScale, params, eyeYOffset, true),
+    makeReferenceEye(projectStructure, structure.skull, pose.sign, referenceEyes[1], eyeScale, params, eyeYOffset, true)
   ];
 
   const nostrils = makeNostrils(projectStructure, structure.skull, pose, reference.nose.base, noseYOffset);
@@ -1496,21 +1492,85 @@ function blendPair(fromPair, toPair, amount) {
   ];
 }
 
-function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, eyeShape, yOffset, visible) {
-  const rx = referenceEye.rx * skull.rx * scale;
+function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, params, yOffset, visible) {
+  const center = projectReferencePoint(project, skull, poseSignValue, [referenceEye.cx, referenceEye.cy], 35, yOffset);
+  const s = center.scale;
+
+  // Half-extents in local eye space (+x outward toward temple, +y down).
+  const w = referenceEye.rx * skull.rx * scale;
   const baseRy = referenceEye.ry * skull.ry * scale;
-  const upperOpen = baseRy * eyeShape.upperOpen;
-  const lowerOpen = baseRy * eyeShape.lowerOpen;
-  const irisRadius = Math.min(rx * 0.34, (upperOpen + lowerOpen) * 0.42);
+  const upper = baseRy * params.eyeUpperOpen;
+  const lower = baseRy * params.eyeLowerOpen;
+  const trap = params.eyeTrapezoid;
+  const outerOut = params.eyeOuterCornerOut * w;
+  const outerUp = params.eyeOuterCornerUp * (upper + lower);
+
+  const topHalf = w * (1 + trap);
+  const bottomHalf = w * (1 - trap);
+
+  // Corner points, local frame.
+  const localCorners = {
+    topInner: { x: -w, y: -upper },
+    topOuter: { x: topHalf + outerOut, y: -upper - outerUp },
+    bottomOuter: { x: bottomHalf, y: lower },
+    bottomInner: { x: -w, y: lower }
+  };
+  const topControl = {
+    x: (localCorners.topInner.x + localCorners.topOuter.x) / 2,
+    y: (localCorners.topInner.y + localCorners.topOuter.y) / 2 - params.eyeTopCurve * (upper + lower) * 0.9
+  };
+  const bottomControl = {
+    x: (localCorners.bottomInner.x + localCorners.bottomOuter.x) / 2,
+    y: (localCorners.bottomInner.y + localCorners.bottomOuter.y) / 2 + params.eyeBottomCurve * (upper + lower) * 0.9
+  };
+
+  // Outward direction on screen (which way the temple is), plus rotation that
+  // mirrors so both eyes tilt symmetrically.
+  const outwardSign = Math.sign(center.x - 250) || poseSignValue;
+  const rotation = params.eyeRotation * outwardSign;
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  const place = local => {
+    const lx = local.x * outwardSign;
+    const rx = lx * cos - local.y * sin;
+    const ry = lx * sin + local.y * cos;
+
+    return { x: center.x + rx * s, y: center.y + ry * s };
+  };
+
+  const quad = {
+    topInner: place(localCorners.topInner),
+    topOuter: place(localCorners.topOuter),
+    bottomOuter: place(localCorners.bottomOuter),
+    bottomInner: place(localCorners.bottomInner),
+    topControl: place(topControl),
+    bottomControl: place(bottomControl)
+  };
+
+  const irisRadius = params.eyeIrisSize * scale * s;
+  const iris = { cx: center.x, cy: center.y, r: irisRadius };
+  const pupil = { cx: center.x, cy: center.y, r: Math.min(params.eyePupilSize * scale * s, irisRadius * 0.95) };
+  const shineRadius = irisRadius * params.eyeShineSize;
+  const shine = params.eyeShine && shineRadius > 0.5
+    ? {
+        cx: center.x + irisRadius * 0.4,
+        cy: center.y - irisRadius * 0.4,
+        r: shineRadius
+      }
+    : null;
 
   return {
     side: poseSignValue,
-    center: projectReferencePoint(project, skull, poseSignValue, [referenceEye.cx, referenceEye.cy], 35, yOffset),
-    rx,
-    upperOpen,
-    lowerOpen,
-    irisRadius,
-    pupilRadius: irisRadius * 0.42,
+    center,
+    quad,
+    iris,
+    pupil,
+    shine,
+    irisColor: isHexColor(params.eyeIrisColor) ? params.eyeIrisColor : "#5b4433",
+    irisGradient: Boolean(params.eyeIrisGradient),
+    // Compatibility fields for the helmet faceplate eye openings.
+    rx: Math.max(topHalf, bottomHalf, w) * s,
+    upperOpen: (upper + outerUp) * s,
     visible
   };
 }

@@ -52,7 +52,26 @@ const controlGroups = [
   },
   {
     title: "Eyes",
-    keys: ["eyeSpacing", "eyeY", "eyeSize", "eyeUpperOpen", "eyeLowerOpen", "eyeTilt"],
+    keys: [
+      "eyeSpacing",
+      "eyeY",
+      "eyeSize",
+      "eyeUpperOpen",
+      "eyeLowerOpen",
+      "eyeTilt",
+      "eyeTopCurve",
+      "eyeBottomCurve",
+      "eyeTrapezoid",
+      "eyeOuterCornerOut",
+      "eyeOuterCornerUp",
+      "eyeRotation",
+      "eyeIrisSize",
+      "eyePupilSize",
+      "eyeIrisColor",
+      "eyeIrisGradient",
+      "eyeShine",
+      "eyeShineSize"
+    ],
     open: true
   },
   {

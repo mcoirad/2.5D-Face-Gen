@@ -82,8 +82,15 @@ export const defaultParams = {
   eyeShine: true,
   eyeShineSize: 0.35,
   noseLength: 48,
+  noseY: 0,
+  noseWidth: 1,
   mouthWidth: 70,
-  smile: 0
+  mouthPosition: 0.5,
+  mouthHeight: 10,
+  upperLipCurve: 0.3,
+  lowerLipCurve: 0.3,
+  teethGap: 0.4,
+  mouthCavityColor: "#4a1f1f"
 };
 
 export const sliderConfig = {
@@ -114,8 +121,14 @@ export const sliderConfig = {
   eyePupilSize: [1, 14, 0.5],
   eyeShineSize: [0, 0.6, 0.01],
   noseLength: [20, 80, 1],
+  noseY: [-40, 40, 1],
+  noseWidth: [0.3, 2, 0.01],
   mouthWidth: [30, 110, 1],
-  smile: [-35, 35, 1],
+  mouthPosition: [0, 1, 0.01],
+  mouthHeight: [0, 30, 1],
+  upperLipCurve: [-1, 1, 0.01],
+  lowerLipCurve: [-1, 1, 0.01],
+  teethGap: [0, 1, 0.01],
   hairStrandCount: [0, 100, 1],
   hairStrandLength: [30, 150, 1],
   hairStrandThickness: [2, 40, 1],
@@ -176,7 +189,8 @@ export const selectConfig = {
 export const colorConfig = {
   hairColor: true,
   hairV2Color: true,
-  eyeIrisColor: true
+  eyeIrisColor: true,
+  mouthCavityColor: true
 };
 
 export const toggleConfig = {
@@ -193,5 +207,7 @@ export const toggleConfig = {
   showHairV2: true,
   showHairV2PartGuide: true,
   eyeIrisGradient: true,
-  eyeShine: true
+  eyeShine: true,
+  showUpperTeeth: true,
+  showLowerTeeth: true
 };

@@ -50,7 +50,7 @@ const REFERENCE_POSES = {
       base: [-0.4136, 1.0265]
     },
     mouth: {
-      left: [-0.4424, 1.1501],
+      left: [-0.3924, 1.1501],
       mid: [-0.2596, 1.2279],
       right: [-0.1241, 1.1625]
     }
@@ -67,7 +67,7 @@ const REFERENCE_POSES = {
       base: [-1.1313+ 0.05, 1.04]
     },
     mouth: {
-      left: [-1.1353+ 0.05, 1.1194],
+      left: [-1.0353+ 0.05, 1.1194],
       mid: [-1.0849+ 0.1, 1.275],
       right: [-0.8422+ 0.05, 1.1723]
     }
@@ -502,10 +502,19 @@ function solveFeatures(params, pose, structure) {
     makeReferenceEye(projectStructure, structure.skull, pose.sign, referenceEyes[1], eyeScale, params, eyeYOffset, true)
   ];
 
-  const nostrils = makeNostrils(projectStructure, structure.skull, pose, reference.nose.base, noseYOffset);
+  // Width scales the nose about its own bridge on X (grows in place, not shifting
+  // across the face at yaw). noseY translates the whole nose vertically (bridge
+  // included), while noseLength only drops the tip/nostrils for protrusion.
+  const noseBridgeX = reference.nose.bridge[0];
+  const noseRef = point => [
+    noseBridgeX + (point[0] - noseBridgeX) * params.noseWidth,
+    point[1]
+  ];
+  const noseBase = noseRef(reference.nose.base);
+  const nostrils = makeNostrils(projectStructure, structure.skull, pose, noseBase, noseYOffset + params.noseY, params.noseWidth);
   const nose = {
-    bridge: projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.bridge, 55, eyeYOffset * 0.55),
-    tip: projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.tip, 75, noseYOffset),
+    bridge: projectReferencePoint(projectStructure, structure.skull, pose.sign, noseRef(reference.nose.bridge), 55, eyeYOffset * 0.55 + params.noseY),
+    tip: projectReferencePoint(projectStructure, structure.skull, pose.sign, noseRef(reference.nose.tip), 75, noseYOffset + params.noseY),
     leftNostril: nostrils.visible,
     rightNostril: nostrils.hidden
   };
@@ -525,11 +534,14 @@ function solveFeatures(params, pose, structure) {
     makeBrow(projectStructure, -pose.sign, browX[1], browY, params.eyeTilt, 1, featureVisibility[1], browTiltDirections[1])
   ];
 
-  const mouth = {
-    left: projectMouthPoint(projectStructure, structure.skull, pose.sign, reference.mouth.left, reference.mouth.mid, mouthScale, 45, params.smile * 0.15),
-    right: projectMouthPoint(projectStructure, structure.skull, pose.sign, reference.mouth.right, reference.mouth.mid, mouthScale, 45, params.smile * 0.15),
-    mid: projectMouthPoint(projectStructure, structure.skull, pose.sign, reference.mouth.mid, reference.mouth.mid, mouthScale, 60, params.smile)
-  };
+  // Anchor the mouth vertically between the bottom of the nose and the chin,
+  // then let mouthPosition slide it between those two points (0 = nose, 1 = chin).
+  const skull = structure.skull;
+  const noseBottomY = skull.cy + noseBase[1] * skull.ry + noseYOffset + params.noseY;
+  const chinY = structure.lowerFaceBottomY;
+  const targetMouthMidY = lerp(noseBottomY, chinY, params.mouthPosition);
+  const mouthYShift = targetMouthMidY - (skull.cy + reference.mouth.mid[1] * skull.ry);
+  const mouth = makeMouth(projectStructure, skull, pose.sign, reference.mouth, mouthScale, params, mouthYShift);
 
   return {
     eyes,
@@ -1575,8 +1587,80 @@ function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, pa
   };
 }
 
-function makeNostrils(project, skull, pose, referenceBase, yOffset) {
-  const nostrilGap = lerp(0.18, 0.035, pose.amount);
+function makeMouth(project, skull, poseSignValue, referenceMouth, mouthScale, params, yOffset) {
+  // Project each anchor independently, like before this quad existed: left/right
+  // use their own yaw-blended reference positions (so the corners keep the
+  // natural asymmetric warp as the head turns) and a shallower z, while mid uses
+  // a deeper z for its slight 3D bulge under pitch. Mouth Height and the lip
+  // curves are then layered on as vertical screen-space offsets from these
+  // already-warped anchors, so the new shape controls don't undo the old warp.
+  const leftBase = projectMouthPoint(project, skull, poseSignValue, referenceMouth.left, referenceMouth.mid, mouthScale, 45, yOffset);
+  const rightBase = projectMouthPoint(project, skull, poseSignValue, referenceMouth.right, referenceMouth.mid, mouthScale, 45, yOffset);
+  const midBase = projectReferencePoint(project, skull, poseSignValue, referenceMouth.mid, 60, yOffset);
+  const s = midBase.scale;
+
+  const halfWidth = Math.abs(rightBase.x - leftBase.x) / 2;
+  // reference.mouth.mid is its own authored point, not exactly the midpoint of
+  // left/right, and left/right now warp independently and asymmetrically under
+  // yaw. Use the true corner-line center for x (so controls/teeth stay centered
+  // between the actual corners at every yaw) but keep midBase.y, with its own
+  // z=60 depth, for the vertical bulge under pitch.
+  const centerX = (leftBase.x + rightBase.x) / 2;
+  // Four distinct corners (like the eye quad) so Mouth Height is a real, visible
+  // gap between the top and bottom edges, not something the lip curve fights
+  // against. Each curve then bows its own edge relative to that edge's own
+  // corners, so it is free to swing fully convex or concave in either direction.
+  const heightHalf = (params.mouthHeight * s) / 2;
+  const upperBow = params.upperLipCurve * halfWidth * 0.8;
+  const lowerBow = params.lowerLipCurve * halfWidth * 0.8;
+
+  const quad = {
+    topLeft: { x: leftBase.x, y: leftBase.y - heightHalf },
+    topRight: { x: rightBase.x, y: rightBase.y - heightHalf },
+    bottomRight: { x: rightBase.x, y: rightBase.y + heightHalf },
+    bottomLeft: { x: leftBase.x, y: leftBase.y + heightHalf },
+    topControl: { x: centerX, y: midBase.y - heightHalf - upperBow },
+    bottomControl: { x: centerX, y: midBase.y + heightHalf + lowerBow }
+  };
+
+  const cavityTop = Math.min(quad.topLeft.y, quad.topRight.y, quad.topControl.y);
+  const cavityBottom = Math.max(quad.bottomLeft.y, quad.bottomRight.y, quad.bottomControl.y);
+  const cavityHeight = cavityBottom - cavityTop;
+  const gapPx = clamp(params.teethGap * cavityHeight * 0.6, 0, cavityHeight);
+  const blockHeight = Math.max(0, (cavityHeight - gapPx) / 2);
+  const pad = Math.max(1, cavityHeight * 0.05);
+  const teethX = halfWidth * 0.82;
+
+  const upperTeeth = {
+    corners: makeTeethRect(centerX - teethX, centerX + teethX, cavityTop + pad, cavityTop + pad + blockHeight),
+    visible: Boolean(params.showUpperTeeth) && blockHeight > 0.5
+  };
+  const lowerTeeth = {
+    corners: makeTeethRect(centerX - teethX, centerX + teethX, cavityBottom - pad - blockHeight, cavityBottom - pad),
+    visible: Boolean(params.showLowerTeeth) && blockHeight > 0.5
+  };
+
+  return {
+    quad,
+    upperTeeth,
+    lowerTeeth,
+    cavityColor: isHexColor(params.mouthCavityColor) ? params.mouthCavityColor : "#4a1f1f",
+    // Compatibility: the profile-outline extension reads mouth.mid as a single point.
+    mid: midBase
+  };
+}
+
+function makeTeethRect(xLeft, xRight, yTop, yBottom) {
+  return [
+    { x: xLeft, y: yTop },
+    { x: xRight, y: yTop },
+    { x: xRight, y: yBottom },
+    { x: xLeft, y: yBottom }
+  ];
+}
+
+function makeNostrils(project, skull, pose, referenceBase, yOffset, widthScale = 1) {
+  const nostrilGap = lerp(0.18, 0.035, pose.amount) * widthScale;
   const hiddenBase = [
     referenceBase[0] - nostrilGap,
     referenceBase[1]

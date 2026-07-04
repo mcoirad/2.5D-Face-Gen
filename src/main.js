@@ -76,12 +76,22 @@ const controlGroups = [
   },
   {
     title: "Nose",
-    keys: ["noseLength"],
+    keys: ["noseLength", "noseY", "noseWidth"],
     open: false
   },
   {
     title: "Mouth",
-    keys: ["mouthWidth", "smile"],
+    keys: [
+      "mouthWidth",
+      "mouthPosition",
+      "mouthHeight",
+      "upperLipCurve",
+      "lowerLipCurve",
+      "teethGap",
+      "showUpperTeeth",
+      "showLowerTeeth",
+      "mouthCavityColor"
+    ],
     open: false
   },
   {

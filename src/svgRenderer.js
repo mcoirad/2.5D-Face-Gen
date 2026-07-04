@@ -6,13 +6,13 @@ export function renderFaceSvg(rig) {
       ${renderHairV2(rig.hairV2, "back")}
       ${renderHead(rig.head)}
       ${rig.showGuides ? renderGuides(rig.head.guides) : ""}
-      ${rig.features.brows.map(renderBrow).join("")}
-      ${rig.features.eyes.map(renderEye).join("")}
       ${renderNose(rig.features.nose)}
       ${renderMouth(rig.features.mouth)}
       ${renderHelmetLayers(rig.helmet?.front)}
       ${renderHair(rig.hair, "front")}
       ${renderHairV2(rig.hairV2, "front")}
+      ${rig.features.brows.map(renderBrow).join("")}
+      ${rig.features.eyes.map(renderEye).join("")}
     </svg>
   `;
 }
@@ -334,13 +334,46 @@ function renderNose(nose) {
 }
 
 function renderMouth(mouth) {
+  const path = renderMouthPath(mouth.quad);
+  const clipId = "mouth-clip";
+
   return `
+    <defs>
+      <clipPath id="${clipId}">
+        <path d="${path}" />
+      </clipPath>
+    </defs>
     <path
-      d="M ${mouth.left.x} ${mouth.left.y} Q ${mouth.mid.x} ${mouth.mid.y} ${mouth.right.x} ${mouth.right.y}"
-      fill="none"
+      d="${path}"
+      fill="${mouth.cavityColor}"
       stroke="black"
       stroke-width="3"
-      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <g clip-path="url(#${clipId})">
+      ${mouth.upperTeeth.visible ? renderTeethRect(mouth.upperTeeth.corners) : ""}
+      ${mouth.lowerTeeth.visible ? renderTeethRect(mouth.lowerTeeth.corners) : ""}
+    </g>
+  `;
+}
+
+function renderMouthPath(quad) {
+  const { topLeft, topRight, bottomRight, bottomLeft, topControl, bottomControl } = quad;
+
+  return [
+    `M ${topLeft.x} ${topLeft.y}`,
+    `Q ${topControl.x} ${topControl.y} ${topRight.x} ${topRight.y}`,
+    `L ${bottomRight.x} ${bottomRight.y}`,
+    `Q ${bottomControl.x} ${bottomControl.y} ${bottomLeft.x} ${bottomLeft.y}`,
+    "Z"
+  ].join(" ");
+}
+
+function renderTeethRect(corners) {
+  return `
+    <path
+      d="${renderPointPath(corners)} Z"
+      fill="white"
     />
   `;
 }

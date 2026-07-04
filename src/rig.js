@@ -67,7 +67,7 @@ const REFERENCE_POSES = {
       base: [-1.1313+ 0.05, 1.04]
     },
     mouth: {
-      left: [-1.0353+ 0.05, 1.1194],
+      left: [-1.0353+ 0.05 , 1.1194],
       mid: [-1.0849+ 0.1, 1.275],
       right: [-0.8422+ 0.05, 1.1723]
     }
@@ -498,8 +498,8 @@ function solveFeatures(params, pose, structure) {
   const mouthScale = params.mouthWidth / DEFAULTS.mouthWidth;
 
   const eyes = [
-    makeReferenceEye(projectStructure, structure.skull, pose.sign, referenceEyes[0], eyeScale, params, eyeYOffset, true),
-    makeReferenceEye(projectStructure, structure.skull, pose.sign, referenceEyes[1], eyeScale, params, eyeYOffset, true)
+    makeReferenceEye(projectStructure, structure.skull, pose.sign, referenceEyes[0], eyeScale, params, eyeYOffset, true, -1),
+    makeReferenceEye(projectStructure, structure.skull, pose.sign, referenceEyes[1], eyeScale, params, eyeYOffset, true, 1)
   ];
 
   // Width scales the nose about its own bridge on X (grows in place, not shifting
@@ -1504,7 +1504,7 @@ function blendPair(fromPair, toPair, amount) {
   ];
 }
 
-function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, params, yOffset, visible) {
+function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, params, yOffset, visible, anatomicalSide) {
   const center = projectReferencePoint(project, skull, poseSignValue, [referenceEye.cx, referenceEye.cy], 35, yOffset);
   const s = center.scale;
 
@@ -1536,9 +1536,11 @@ function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, pa
     y: (localCorners.bottomInner.y + localCorners.bottomOuter.y) / 2 + params.eyeBottomCurve * (upper + lower) * 0.9
   };
 
-  // Outward direction on screen (which way the temple is), plus rotation that
-  // mirrors so both eyes tilt symmetrically.
-  const outwardSign = Math.sign(center.x - 250) || poseSignValue;
+  // Outward direction is tied to anatomical eye identity in face space, then
+  // mirrored with the pose. This keeps screen-left/right eyes stable as yaw
+  // crosses zero without letting a profile eye flip just because it crosses
+  // screen center.
+  const outwardSign = anatomicalSide * poseSignValue;
   const rotation = params.eyeRotation * outwardSign;
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
@@ -1572,7 +1574,7 @@ function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, pa
     : null;
 
   return {
-    side: poseSignValue,
+    side: anatomicalSide,
     center,
     quad,
     iris,

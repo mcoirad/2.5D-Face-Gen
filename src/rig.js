@@ -109,8 +109,6 @@ export const defaultOutlineLandmarks = {
   }
 };
 
-const NOSE_OUTLINE_WEIGHTS = [0, 0, 0, 1, 0.35];
-
 export function solveFaceRig(params) {
   const yaw = clamp(params.yaw, -1, 1);
   const pose = {
@@ -123,6 +121,8 @@ export function solveFaceRig(params) {
 
   const head = solveHead(params, pose);
   const features = solveFeatures(params, pose, head.structure);
+
+  head.outline = extendOutlineWithProfile(head.outline, features);
 
   return {
     showGuides: params.showGuides,
@@ -269,18 +269,61 @@ function angleForCirclePoint(point) {
 }
 
 function lowerEllipseLandmark(lowerFace, landmark, index, pose, params, skull) {
-  const noseWeight = NOSE_OUTLINE_WEIGHTS[index] * pose.amount;
-  const noseLengthOffset = (params.noseLength - DEFAULTS.noseLength) / skull.rx;
   const mirroredAngle = pose.sign < 0 ? 180 - landmark.angle : landmark.angle;
   const theta = mirroredAngle * Math.PI / 180;
 
   return {
     x: lowerFace.cx
       + Math.cos(theta) * lowerFace.rx
-      + pose.sign * landmark.offsetX * skull.rx
-      - pose.sign * noseLengthOffset * noseWeight * 0.55 * skull.rx,
+      + pose.sign * landmark.offsetX * skull.rx,
     y: lowerFace.cy + Math.sin(theta) * lowerFace.ry + landmark.offsetY * skull.ry
   };
+}
+
+// When the head turns toward profile, the nose and mouth can protrude past the
+// jaw/cheek outline. This extends the front of the outline to include those
+// points whenever they fall outside the base polygon, so the profile silhouette
+// picks up the nose and mouth instead of clipping them. The base outline ends
+// with lower1..lower5; the front run of the closed loop is lower4 -> lower5 ->
+// arcStart. We drop lower5 and splice the outside points in bottom-to-top order
+// (mouth -> nose base -> nose tip -> nose bridge) between lower4 and arcStart.
+function extendOutlineWithProfile(outline, features) {
+  const candidates = [
+    features.mouth.mid,
+    features.nose.leftNostril,
+    features.nose.tip,
+    features.nose.bridge
+  ];
+  const protruding = candidates.filter(point => !pointInPolygon(point, outline));
+
+  if (!protruding.length) {
+    return outline;
+  }
+
+  // Drop lower5 (last vertex) and append the protruding front points after lower4.
+  return [
+    ...outline.slice(0, -1),
+    ...protruding.map(point => ({ x: point.x, y: point.y, scale: 1, depth: 0 }))
+  ];
+}
+
+function pointInPolygon(point, polygon) {
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x;
+    const yi = polygon[i].y;
+    const xj = polygon[j].x;
+    const yj = polygon[j].y;
+    const intersects = (yi > point.y) !== (yj > point.y)
+      && point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
+
+    if (intersects) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
 }
 
 function solveFeatures(params, pose, structure) {

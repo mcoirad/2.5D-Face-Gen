@@ -27,7 +27,7 @@ const REFERENCE_POSES = {
       { cx: 0.5945, cy: 0.5525, rx: 0.1845, ry: 0.1822 }
     ],
     nose: {
-      bridge: [-0.0891, 1.0271],
+      bridge: [-0.000, 1.0271],
       tip: [-0.0008, 1.0551],
       base: [0.1063, 1.0239]
     },
@@ -61,9 +61,9 @@ const REFERENCE_POSES = {
       { cx: -0.5053, cy: 0.5575, rx: 0.1845, ry: 0.1822 }
     ],
     nose: {
-      bridge: [-1.0627, 0.5257],
+      bridge: [-1.0627, 0.6257],
       tip: [-1.2257, 0.8647],
-      base: [-1.1313, 1.1104]
+      base: [-1.1313, 1.04]
     },
     mouth: {
       left: [-1.1353, 1.1194],
@@ -100,10 +100,10 @@ export const defaultOutlineLandmarks = {
     startTemple: [-1.05, 0.52],
     endTemple: [1.05, 0.52],
     lower: [
-      { angle: 35, offsetX: 0, offsetY: 0 },
-      { angle: 85, offsetX: 0, offsetY: 0 },
-      { angle: 138, offsetX: 0, offsetY: 0 },
-      { angle: 180, offsetX: 0, offsetY: 0 },
+      { angle: 15, offsetX: 0, offsetY: -0.06 },
+      { angle: 85, offsetX: 0, offsetY: -0.06 },
+      { angle: 138, offsetX: 0, offsetY: -0.06 },
+      { angle: 180, offsetX: 0, offsetY: -0.06 },
       { angle: 215, offsetX: 0, offsetY: 0 }
     ]
   }

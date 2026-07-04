@@ -409,14 +409,23 @@ function solveHair(params, pose, structure) {
 }
 
 function makeHairGuides(params, pose, structure) {
-  return [-1, -0.5, 0, 0.5, 1].map(sideOffset => {
-    const sideWeight = Math.abs(sideOffset);
+  return [
+    { angleOffset: -1, sideWeight: 1, backWeight: 0 },
+    { angleOffset: -0.5, sideWeight: 0.5, backWeight: 0 },
+    { angleOffset: 0, sideWeight: 0, backWeight: 0 },
+    { angleOffset: 0.5, sideWeight: 0.5, backWeight: 0 },
+    { angleOffset: 1, sideWeight: 1, backWeight: 0 },
+    { angleOffset: 1.5, sideWeight: 1, backWeight: 1 },
+    { angleOffset: 2, sideWeight: 0, backWeight: 1 },
+    { angleOffset: -1.5, sideWeight: 1, backWeight: 1 }
+  ].map(guideConfig => {
+    const { sideWeight } = guideConfig;
     const baldnessScale = lerp(1, 0.55 + 0.45 * sideWeight, params.hairMalePatternBaldnessBias);
     const shapeScale = hairlineShapeScale(params.hairlineShape, sideWeight);
     const bangsShift = params.hairBangsBias * (sideWeight - 0.5) * 0.8;
     const hairlineAmount = clamp(params.hairline * params.hairPartDepth * baldnessScale * shapeScale + bangsShift, 0.05, 1.2);
 
-    return makeHairGuide(params, pose, structure, sideOffset, hairlineAmount);
+    return makeHairGuide(params, pose, structure, guideConfig, hairlineAmount);
   });
 }
 
@@ -438,13 +447,14 @@ function hairlineShapeScale(shape, sideWeight) {
   return 0.92 + centerWeight * 0.16;
 }
 
-function makeHairGuide(params, pose, structure, sideOffset, hairlineAmount) {
+function makeHairGuide(params, pose, structure, guideConfig, hairlineAmount) {
   const projectStructure = createStructureProjector(params);
   const { skull } = structure;
   const partShift = params.hairPartPosition * Math.PI * 0.35;
-  const guideAngle = sideOffset * Math.PI / 2 + partShift - pose.yaw * Math.PI / 2;
+  const guideAngle = guideConfig.angleOffset * Math.PI / 2 + partShift - pose.yaw * Math.PI / 2;
   const sidePosition = Math.sin(guideAngle);
   const depthPosition = Math.cos(guideAngle);
+  const angularVisibility = clamp((depthPosition + Math.SQRT1_2) / Math.SQRT1_2, 0, 1);
   const guideEndTheta = lerp(-Math.PI / 2, 0, hairlineAmount);
   const points = [];
 
@@ -460,19 +470,25 @@ function makeHairGuide(params, pose, structure, sideOffset, hairlineAmount) {
     ));
   }
 
+  points.sideWeight = guideConfig.sideWeight;
+  points.backWeight = guideConfig.backWeight;
+  points.angularVisibility = angularVisibility;
+
   return points;
 }
 
 function makeScalpAnchors(guides, params) {
   return guides.flatMap((guide, guideIndex) => {
-    const guideSideWeight = Math.abs(guideIndex - ((guides.length - 1) / 2)) / ((guides.length - 1) / 2);
+    const guideSideWeight = guide.sideWeight ?? Math.abs(guideIndex - ((guides.length - 1) / 2)) / ((guides.length - 1) / 2);
+    const guideBackWeight = guide.backWeight ?? 0;
+    const guideAngularVisibility = guide.angularVisibility ?? 1;
 
     return Array.from({ length: 9 }, (_, pointIndex) => {
       const guidePosition = pointIndex / 8;
       const sample = samplePolyline(guide, guidePosition);
       const crownCoverage = lerp(params.hairCrownCoverage, 1, guidePosition);
       const sideCoverage = lerp(1, params.hairSideCoverage, guideSideWeight);
-      const coverage = clamp(crownCoverage * sideCoverage, 0, 1);
+      const coverage = clamp(crownCoverage * sideCoverage * guideAngularVisibility, 0, 1);
 
       return {
         point: sample.point,
@@ -483,6 +499,8 @@ function makeScalpAnchors(guides, params) {
         guidePosition,
         depth: sample.depth,
         layer: sample.depth < -65 && guideSideWeight > 0.9 ? "back" : "front",
+        backWeight: guideBackWeight,
+        angularVisibility: guideAngularVisibility,
         coverage
       };
     });
@@ -498,7 +516,7 @@ function makeHairStrands(anchors, params, pose) {
   }
 
   return Array.from({ length: count }, (_, index) => {
-    const anchor = eligibleAnchors[index % eligibleAnchors.length];
+    const anchor = eligibleAnchors[Math.floor(index * eligibleAnchors.length / count) % eligibleAnchors.length];
 
     return makeHairStrand(
       anchor,
@@ -601,6 +619,8 @@ function makeHairStrand(anchor, params, pose, randomIndex) {
       controlRightOffset
     ),
     layer: anchor.layer,
+    guideIndex: anchor.guideIndex,
+    backWeight: anchor.backWeight,
     fill: hairColor.fill,
     stroke: hairColor.stroke,
     opacity: 0.92
@@ -707,6 +727,8 @@ function makeHairLock(anchor, params, pose, randomIndex) {
     ...curveControls,
     detailLines,
     layer: anchor.layer,
+    guideIndex: anchor.guideIndex,
+    backWeight: anchor.backWeight,
     fill: hairColor.fill,
     stroke: hairColor.stroke,
     opacity: 0.94

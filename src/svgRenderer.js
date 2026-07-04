@@ -168,7 +168,9 @@ function renderHairGuides(guides = []) {
     return "";
   }
 
-  return guides.map(guide => `
+  return guides
+    .filter(guide => (guide.angularVisibility ?? 1) > 0.001)
+    .map(guide => `
       <path
         d="${renderPointPath(guide)}"
         fill="none"
@@ -177,12 +179,13 @@ function renderHairGuides(guides = []) {
         stroke-linecap="round"
         stroke-linejoin="round"
         stroke-dasharray="5 5"
+        opacity="${0.25 + (guide.angularVisibility ?? 1) * 0.75}"
       />
     `).join("");
 }
 
 function renderHairAnchors(anchors = []) {
-  return anchors.map(anchor => `
+  return anchors.filter(anchor => anchor.coverage > 0.001).map(anchor => `
     <circle
       cx="${anchor.point.x}"
       cy="${anchor.point.y}"

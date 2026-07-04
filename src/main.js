@@ -324,9 +324,18 @@ function createLandmarkEditor() {
   editor.className = "landmark-editor";
 
   editor.innerHTML = `
-    <summary>Outline landmarks</summary>
+    <summary>
+      <span>Outline landmarks</span>
+      <button type="button" class="landmark-reset">Reset landmarks</button>
+    </summary>
     <div class="landmark-editor-content"></div>
   `;
+
+  editor.querySelector(".landmark-reset").addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    resetOutlineLandmarks();
+  });
 
   const content = editor.querySelector(".landmark-editor-content");
 
@@ -431,6 +440,17 @@ function setLandmarkValue(poseKey, pointKey, index, field, value) {
   }
 
   point[Number(field)] = value;
+}
+
+function resetOutlineLandmarks() {
+  params.outlineLandmarks = structuredClone(defaultOutlineLandmarks);
+  rebuildLandmarkControls();
+  render();
+}
+
+function rebuildLandmarkControls() {
+  landmarkControls.innerHTML = "";
+  createLandmarkEditor();
 }
 
 function applyParams(snapshot) {

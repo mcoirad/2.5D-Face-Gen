@@ -145,10 +145,24 @@ select {
   padding-left: 16px;
 }
 
-.landmark-editor summary,
 .pose-editor summary {
   cursor: pointer;
   font-weight: 650;
+}
+
+.landmark-editor > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.landmark-reset {
+  min-height: 28px;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 .landmark-editor-content {

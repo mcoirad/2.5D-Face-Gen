@@ -19,6 +19,7 @@ export const defaultParams = {
   showHelmetNoseGuard: true,
   showHairStrands: true,
   showHairPartGuide: true,
+  hairMirror: false,
   hairRenderMode: "locks",
   hairColor: "#2a241e",
   hairStrandCount: 10,
@@ -100,8 +101,8 @@ export const sliderConfig = {
   hairHaircutType: [-1, 1, 0.01],
   hairHaircutLength: [10, 480, 1],
   hairUndercutBias: [0, 1, 0.01],
-  hairLockCount: [0, 36, 1],
-  hairLockWidth: [8, 70, 1],
+  hairLockCount: [0, 80, 1],
+  hairLockWidth: [8, 170, 1],
   hairLockLength: [30, 190, 1],
   hairLockTaper: [0.1, 1, 0.01],
   hairLockCurve: [0, 1.5, 0.01],
@@ -145,5 +146,6 @@ export const toggleConfig = {
   showHelmetNearCheekGuard: true,
   showHelmetNoseGuard: true,
   showHairStrands: true,
-  showHairPartGuide: true
+  showHairPartGuide: true,
+  hairMirror: true
 };

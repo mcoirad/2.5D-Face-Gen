@@ -82,6 +82,7 @@ const controlGroups = [
       "hairColor",
       "showHairStrands",
       "showHairPartGuide",
+      "hairMirror",
       "hairPartPosition",
       "hairPartDepth",
       "hairline",

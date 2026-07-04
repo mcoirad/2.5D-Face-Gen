@@ -109,6 +109,9 @@ export const defaultOutlineLandmarks = {
   }
 };
 
+const HAIR_MIRROR_GUIDES = [4, 3, 2, 1, 0, 7, 6, 5];
+const HAIR_MIRROR_SOURCE_GUIDES = [0, 1, 2, 5, 6];
+
 export function solveFaceRig(params) {
   const yaw = clamp(params.yaw, -1, 1);
   const pose = {
@@ -410,20 +413,21 @@ function solveHair(params, pose, structure) {
 
 function makeHairGuides(params, pose, structure) {
   return [
-    { angleOffset: -1, sideWeight: 1, backWeight: 0 },
-    { angleOffset: -0.5, sideWeight: 0.5, backWeight: 0 },
-    { angleOffset: 0, sideWeight: 0, backWeight: 0 },
-    { angleOffset: 0.5, sideWeight: 0.5, backWeight: 0 },
-    { angleOffset: 1, sideWeight: 1, backWeight: 0 },
-    { angleOffset: 1.5, sideWeight: 1, backWeight: 1 },
-    { angleOffset: 2, sideWeight: 0, backWeight: 1 },
-    { angleOffset: -1.5, sideWeight: 1, backWeight: 1 }
+    { angleOffset: -1, sideWeight: 1, backWeight: 0, lengthMultiplier: 1 },
+    { angleOffset: -0.5, sideWeight: 0.5, backWeight: 0, lengthMultiplier: 1 },
+    { angleOffset: 0, sideWeight: 0, backWeight: 0, lengthMultiplier: 1 },
+    { angleOffset: 0.5, sideWeight: 0.5, backWeight: 0, lengthMultiplier: 1 },
+    { angleOffset: 1, sideWeight: 1, backWeight: 0, lengthMultiplier: 1 },
+    { angleOffset: 1.5, sideWeight: 1, backWeight: 1, lengthMultiplier: 1.25 },
+    { angleOffset: 2, sideWeight: 0, backWeight: 1, lengthMultiplier: 1.5 },
+    { angleOffset: -1.5, sideWeight: 1, backWeight: 1, lengthMultiplier: 1.25 }
   ].map(guideConfig => {
     const { sideWeight } = guideConfig;
     const baldnessScale = lerp(1, 0.55 + 0.45 * sideWeight, params.hairMalePatternBaldnessBias);
     const shapeScale = hairlineShapeScale(params.hairlineShape, sideWeight);
     const bangsShift = params.hairBangsBias * (sideWeight - 0.5) * 0.8;
-    const hairlineAmount = clamp(params.hairline * params.hairPartDepth * baldnessScale * shapeScale + bangsShift, 0.05, 1.2);
+    const baseHairlineAmount = clamp(params.hairline * params.hairPartDepth * baldnessScale * shapeScale + bangsShift, 0.05, 1.2);
+    const hairlineAmount = clamp(baseHairlineAmount * guideConfig.lengthMultiplier, 0.05, 2);
 
     return makeHairGuide(params, pose, structure, guideConfig, hairlineAmount);
   });
@@ -472,6 +476,7 @@ function makeHairGuide(params, pose, structure, guideConfig, hairlineAmount) {
 
   points.sideWeight = guideConfig.sideWeight;
   points.backWeight = guideConfig.backWeight;
+  points.lengthMultiplier = guideConfig.lengthMultiplier;
   points.angularVisibility = angularVisibility;
 
   return points;
@@ -509,26 +514,69 @@ function makeScalpAnchors(guides, params) {
 
 function makeHairStrands(anchors, params, pose) {
   const count = Math.round(params.hairStrandCount);
-  const eligibleAnchors = filterCoveredAnchors(anchors, 12);
 
-  if (count <= 0 || !eligibleAnchors.length) {
+  if (count <= 0 || !anchors.length) {
     return [];
   }
 
   return Array.from({ length: count }, (_, index) => {
-    const anchor = eligibleAnchors[Math.floor(index * eligibleAnchors.length / count) % eligibleAnchors.length];
-
-    return makeHairStrand(
+    const anchor = selectStableHairAnchor(
+      anchors,
+      index,
+      count,
+      0,
+      params.hairMirror ? HAIR_MIRROR_SOURCE_GUIDES : null
+    );
+    const randomIndex = index + anchor.guideIndex * 101 + anchor.pointIndex * 17;
+    const strand = makeHairStrand(
       anchor,
       params,
       pose,
-      index + anchor.guideIndex * 101 + anchor.pointIndex * 17
+      randomIndex
     );
-  });
+
+    if (!params.hairMirror) {
+      return [strand];
+    }
+
+    return [
+      strand,
+      makeHairStrand(
+        findMirrorHairAnchor(anchors, anchor),
+        params,
+        pose,
+        randomIndex,
+        -1
+      )
+    ];
+  }).flat();
 }
 
-function filterCoveredAnchors(anchors, salt) {
-  return anchors.filter(anchor => seededRandom(anchor.guideIndex * 41 + anchor.pointIndex * 13, salt) <= anchor.coverage);
+function selectStableHairAnchor(anchors, index, count, minGuidePosition, guideIndices = null) {
+  const guideCount = Math.max(...anchors.map(anchor => anchor.guideIndex)) + 1;
+  const anchorSlots = Math.max(...anchors.map(anchor => anchor.pointIndex)) + 1;
+  const sourceGuides = guideIndices ?? Array.from({ length: guideCount }, (_, guideIndex) => guideIndex);
+  const guideIndex = sourceGuides[index % sourceGuides.length];
+  const positionIndex = Math.floor(index / sourceGuides.length);
+  const positionsPerGuide = Math.max(1, Math.ceil(count / sourceGuides.length));
+  const minPointIndex = Math.ceil(minGuidePosition * (anchorSlots - 1));
+  const usableSlots = anchorSlots - minPointIndex;
+  const pointIndex = minPointIndex + Math.min(
+    usableSlots - 1,
+    Math.floor(positionIndex * usableSlots / positionsPerGuide)
+  );
+
+  return anchors.find(anchor => anchor.guideIndex === guideIndex && anchor.pointIndex === pointIndex)
+    ?? anchors[index % anchors.length];
+}
+
+function findMirrorHairAnchor(anchors, anchor) {
+  const mirrorGuideIndex = HAIR_MIRROR_GUIDES[anchor.guideIndex] ?? anchor.guideIndex;
+
+  return anchors.find(candidate => (
+    candidate.guideIndex === mirrorGuideIndex
+    && candidate.pointIndex === anchor.pointIndex
+  )) ?? anchor;
 }
 
 function haircutWeight(sideWeight, haircutType) {
@@ -558,10 +606,10 @@ function applyHaircut(anchor, direction, rawLength, params) {
   return cutLength * undercutMultiplier;
 }
 
-function makeHairStrand(anchor, params, pose, randomIndex) {
+function makeHairStrand(anchor, params, pose, randomIndex, mirrorSign = 1) {
   const hairColor = resolveHairColor(params);
   const t = anchor.guidePosition;
-  const randomSide = seededRandom(randomIndex, 1) < 0.5 ? -1 : 1;
+  const randomSide = (seededRandom(randomIndex, 1) < 0.5 ? -1 : 1) * mirrorSign;
   const guideSide = Math.sign(anchor.point.x - 250);
   const outwardSide = guideSide === 0 ? randomSide : -guideSide;
   const side = seededRandom(randomIndex, 6) < smoothstep(0.35, 1, pose.amount)
@@ -582,7 +630,7 @@ function makeHairStrand(anchor, params, pose, randomIndex) {
   const rawLength = params.hairStrandLength * bangsLengthMultiplier * lerp(0.62, 1.38, seededRandom(randomIndex, 2));
   const length = applyHaircut(anchor, direction, rawLength, params);
   const thickness = params.hairStrandThickness * lerp(0.55, 1.45, seededRandom(randomIndex, 3));
-  const curve = params.hairStrandCurve * length * lerp(-0.55, 0.85, seededRandom(randomIndex, 4));
+  const curve = params.hairStrandCurve * length * lerp(-0.55, 0.85, seededRandom(randomIndex, 4)) * mirrorSign;
   const splitCurve = seededRandom(randomIndex, 7) < params.hairStrandSplitCurve;
   const curveNormal = {
     x: -direction.y,
@@ -620,7 +668,9 @@ function makeHairStrand(anchor, params, pose, randomIndex) {
     ),
     layer: anchor.layer,
     guideIndex: anchor.guideIndex,
+    pointIndex: anchor.pointIndex,
     backWeight: anchor.backWeight,
+    mirrored: mirrorSign < 0,
     fill: hairColor.fill,
     stroke: hairColor.stroke,
     opacity: 0.92
@@ -629,34 +679,53 @@ function makeHairStrand(anchor, params, pose, randomIndex) {
 
 function makeHairLocks(anchors, params, pose) {
   const count = Math.round(params.hairLockCount);
-  const eligibleAnchors = filterCoveredAnchors(anchors, 29)
-    .filter(anchor => anchor.guidePosition > 0.08);
 
-  if (count <= 0 || !eligibleAnchors.length) {
+  if (count <= 0 || !anchors.length) {
     return [];
   }
 
   return Array.from({ length: count }, (_, index) => {
-    const anchor = eligibleAnchors[Math.floor(index * eligibleAnchors.length / count) % eligibleAnchors.length];
-
-    return makeHairLock(
+    const anchor = selectStableHairAnchor(
+      anchors,
+      index,
+      count,
+      0.08,
+      params.hairMirror ? HAIR_MIRROR_SOURCE_GUIDES : null
+    );
+    const randomIndex = index + anchor.guideIndex * 131 + anchor.pointIndex * 19;
+    const lock = makeHairLock(
       anchor,
       params,
       pose,
-      index + anchor.guideIndex * 131 + anchor.pointIndex * 19
+      randomIndex
     );
-  });
+
+    if (!params.hairMirror) {
+      return [lock];
+    }
+
+    return [
+      lock,
+      makeHairLock(
+        findMirrorHairAnchor(anchors, anchor),
+        params,
+        pose,
+        randomIndex,
+        -1
+      )
+    ];
+  }).flat();
 }
 
-function makeHairLock(anchor, params, pose, randomIndex) {
+function makeHairLock(anchor, params, pose, randomIndex, mirrorSign = 1) {
   const hairColor = resolveHairColor(params);
-  const randomSide = seededRandom(randomIndex, 1) < 0.5 ? -1 : 1;
+  const randomSide = (seededRandom(randomIndex, 1) < 0.5 ? -1 : 1) * mirrorSign;
   const guideSide = Math.sign(anchor.point.x - 250);
   const outwardSide = guideSide === 0 ? randomSide : -guideSide;
   const side = seededRandom(randomIndex, 2) < smoothstep(0.35, 1, pose.amount)
     ? outwardSide
     : randomSide;
-  const asymmetry = (seededRandom(randomIndex, 6) - 0.5) * params.hairLockAsymmetry;
+  const asymmetry = (seededRandom(randomIndex, 6) - 0.5) * params.hairLockAsymmetry * mirrorSign;
   const outward = {
     x: -anchor.tangent.y * side,
     y: anchor.tangent.x * side
@@ -669,7 +738,7 @@ function makeHairLock(anchor, params, pose, randomIndex) {
   const rawLength = params.hairLockLength * bangsLengthMultiplier * lerp(0.72, 1.28, seededRandom(randomIndex, 3));
   const length = applyHaircut(anchor, direction, rawLength, params);
   const width = params.hairLockWidth * lerp(0.72, 1.35, seededRandom(randomIndex, 4));
-  const curve = params.hairLockCurve * length * lerp(-0.4, 0.8, seededRandom(randomIndex, 5));
+  const curve = params.hairLockCurve * length * lerp(-0.4, 0.8, seededRandom(randomIndex, 5)) * mirrorSign;
   const curveType = resolveHairCurveType(params.hairCurveType, randomIndex);
   const curveNormal = {
     x: -direction.y,
@@ -728,7 +797,9 @@ function makeHairLock(anchor, params, pose, randomIndex) {
     detailLines,
     layer: anchor.layer,
     guideIndex: anchor.guideIndex,
+    pointIndex: anchor.pointIndex,
     backWeight: anchor.backWeight,
+    mirrored: mirrorSign < 0,
     fill: hairColor.fill,
     stroke: hairColor.stroke,
     opacity: 0.94

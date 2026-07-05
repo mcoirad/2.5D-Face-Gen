@@ -24,6 +24,12 @@ const V_MIN = 0.05;
 const PART_MID_V = 0.45;
 // z depth magnitude for the scalp surface (matches the v1 guide depth).
 const SCALP_Z = 72;
+// Locks within this many degrees past the true 90deg front/back boundary still
+// render as front, so hair doesn't pop to fully hidden right at the profile
+// edge. depthPosition = cos(guideAngle), so this converts to a slightly
+// negative threshold instead of exactly 0.
+const FRONT_BACK_MARGIN_DEGREES = 10;
+const FRONT_BACK_DEPTH_THRESHOLD = Math.cos((90 + FRONT_BACK_MARGIN_DEGREES) * Math.PI / 180);
 
 export function solveHairV2(params, pose, structure) {
   const projectStructure = createStructureProjector(params);
@@ -37,16 +43,22 @@ export function solveHairV2(params, pose, structure) {
   const count = Math.round(params.hairV2LockCount);
   const color = resolveHairColor(params, "hairV2Color");
   const locks = [];
+  const mirror = Boolean(params.hairV2Mirror);
+  const sourceCount = count;
 
   // Stratified placement: cover the (u, v) map with a jittered grid so locks are
   // spread evenly instead of clumping and leaving bald spots. u is the wide axis
   // (around the head), so use more columns than rows.
-  const rows = Math.max(2, Math.round(Math.sqrt(count / 3)));
-  const cols = Math.max(1, Math.ceil(count / rows));
+  const rows = Math.max(2, Math.round(Math.sqrt(sourceCount / 3)));
+  const cols = Math.max(1, Math.ceil(sourceCount / rows));
 
-  for (let i = 0; i < count; i += 1) {
-    const { u, v } = stratifiedUV(i, cols, rows);
+  for (let i = 0; i < sourceCount; i += 1) {
+    const { u, v } = stratifiedUV(i, cols, rows, mirror);
     locks.push(makeV2Lock(i, u, v, scalp, partU, partHalf, midpoint, params, color));
+
+    if (mirror) {
+      locks.push(makeV2Lock(i, -u, v, scalp, partU, partHalf, midpoint, params, color, -1));
+    }
   }
 
   return {
@@ -81,16 +93,18 @@ function scalpPoint(u, v, projectStructure, skull, pose) {
 }
 
 // One jittered cell of a cols x rows grid over the (u, v) scalp map.
-function stratifiedUV(index, cols, rows) {
+function stratifiedUV(index, cols, rows, mirror = false) {
   const cellU = index % cols;
   const cellV = Math.floor(index / cols) % rows;
-  const u = lerp(-U_RANGE, U_RANGE, (cellU + seededRandom(index, 11)) / cols);
+  const u = mirror
+    ? lerp(0, U_RANGE, (cellU + seededRandom(index, 11)) / cols)
+    : lerp(-U_RANGE, U_RANGE, (cellU + seededRandom(index, 11)) / cols);
   const v = clamp(lerp(V_MIN, 1, (cellV + seededRandom(index, 12)) / rows), 0, 1);
 
   return { u, v };
 }
 
-function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color) {
+function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color, curveMirror = 1) {
   const base = scalp(u, v);
 
   // Screen-space direction of increasing u, via finite difference of the surface.
@@ -121,12 +135,12 @@ function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color
 
   const width = params.hairV2LockWidth * lerp(0.85, 1.15, seededRandom(index, 3));
   const length = params.hairV2LockLength * lerp(0.85, 1.15, seededRandom(index, 4));
-  const curve = length * 0.12 * (seededRandom(index, 5) < 0.5 ? -1 : 1);
+  const curve = length * 0.12 * (seededRandom(index, 5) < 0.5 ? -1 : 1) * curveMirror;
 
-  return buildLockGeometry(base, direction, width, length, curve, color, base.depthPosition);
+  return buildLockGeometry(base, direction, width, length, curve, color, base.depthPosition, params.hairV2LockRootRound);
 }
 
-function buildLockGeometry(base, direction, width, length, curve, color, depthPosition) {
+function buildLockGeometry(base, direction, width, length, curve, color, depthPosition, rootRound = 0) {
   const tangent = { x: -direction.y, y: direction.x };
   const rootLeft = offsetPoint(base, tangent, -width / 2);
   const rootRight = offsetPoint(base, tangent, width / 2);
@@ -146,15 +160,23 @@ function buildLockGeometry(base, direction, width, length, curve, color, depthPo
     tension: 0.5,
     asymmetry: 0
   });
+  // Bulge the back edge (root) outward, away from the tip, instead of closing
+  // it with a flat line. That flat closing line is what makes the base read
+  // as a triangle; a curve here rounds it into a soft "shield" shape.
+  const rootBulge = width * 0.35 * rootRound;
+  const rootControl = rootBulge > 0.01
+    ? offsetPoint(base, direction, -rootBulge)
+    : null;
 
   return {
     rootLeft,
     rootRight,
     tip,
+    rootControl,
     notch: null,
     ...curveControls,
     detailLines: [],
-    layer: depthPosition < 0 ? "back" : "front",
+    layer: depthPosition < FRONT_BACK_DEPTH_THRESHOLD ? "back" : "front",
     fill: color.fill,
     stroke: color.stroke,
     opacity: 0.95

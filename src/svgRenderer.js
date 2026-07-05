@@ -8,9 +8,9 @@ export function renderFaceSvg(rig) {
       ${rig.showGuides ? renderGuides(rig.head.guides) : ""}
       ${renderNose(rig.features.nose)}
       ${renderMouth(rig.features.mouth)}
-      ${renderHelmetLayers(rig.helmet?.front)}
       ${renderHair(rig.hair, "front")}
       ${renderHairV2(rig.hairV2, "front")}
+      ${renderHelmetLayers(rig.helmet?.front)}
       ${rig.features.brows.map(renderBrow).join("")}
       ${rig.features.eyes.map(renderEye).join("")}
     </svg>
@@ -157,6 +157,13 @@ function renderHairLock(lock) {
 }
 
 function renderHairLockPath(lock) {
+  // Locks that carry a rootControl (v2's back-bulge) close with a curve instead
+  // of the flat line "Z" would draw, rounding the base instead of leaving it as
+  // a straight-cut triangle. Locks without one (v1) render exactly as before.
+  const rootClose = lock.rootControl
+    ? `Q ${lock.rootControl.x} ${lock.rootControl.y} ${lock.rootLeft.x} ${lock.rootLeft.y} Z`
+    : "Z";
+
   if (lock.notch) {
     return [
       `M ${lock.rootLeft.x} ${lock.rootLeft.y}`,
@@ -164,7 +171,7 @@ function renderHairLockPath(lock) {
       `L ${lock.notch.x} ${lock.notch.y}`,
       `L ${lock.tipRight.x} ${lock.tipRight.y}`,
       `C ${lock.controlRight2.x} ${lock.controlRight2.y} ${lock.controlRight1.x} ${lock.controlRight1.y} ${lock.rootRight.x} ${lock.rootRight.y}`,
-      "Z"
+      rootClose
     ].join(" ");
   }
 
@@ -172,7 +179,7 @@ function renderHairLockPath(lock) {
     `M ${lock.rootLeft.x} ${lock.rootLeft.y}`,
     `C ${lock.controlLeft1.x} ${lock.controlLeft1.y} ${lock.controlLeft2.x} ${lock.controlLeft2.y} ${lock.tip.x} ${lock.tip.y}`,
     `C ${lock.controlRight2.x} ${lock.controlRight2.y} ${lock.controlRight1.x} ${lock.controlRight1.y} ${lock.rootRight.x} ${lock.rootRight.y}`,
-    "Z"
+    rootClose
   ].join(" ");
 }
 

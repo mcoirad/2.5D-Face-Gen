@@ -152,10 +152,12 @@ const controlGroups = [
     keys: [
       "showHairV2",
       "showHairV2PartGuide",
+      "hairV2Mirror",
       "hairV2Color",
       "hairV2LockCount",
       "hairV2LockWidth",
       "hairV2LockLength",
+      "hairV2LockRootRound",
       "hairV2PartOffset",
       "hairV2PartLength",
       "hairV2PerpBias",

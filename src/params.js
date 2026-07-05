@@ -11,6 +11,7 @@ export const defaultParams = {
   outlineOuterGap: 1,
   outlineInnerGap: 1,
   showGuides: true,
+  removeStrokes: false,
   showHelmet: true,
   showHelmetShell: true,
   showHelmetFacePlate: true,
@@ -198,6 +199,7 @@ export const colorConfig = {
 
 export const toggleConfig = {
   showGuides: true,
+  removeStrokes: true,
   showHelmet: true,
   showHelmetShell: true,
   showHelmetFacePlate: true,

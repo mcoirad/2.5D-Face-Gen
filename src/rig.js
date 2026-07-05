@@ -135,6 +135,7 @@ export function solveFaceRig(params) {
 
   return {
     showGuides: params.showGuides,
+    removeStrokes: params.removeStrokes,
     showHelmet: params.showHelmet,
     pose: {
       ...pose,

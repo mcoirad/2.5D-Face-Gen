@@ -168,7 +168,7 @@ const controlGroups = [
   },
   {
     title: "Display",
-    keys: ["showGuides"],
+    keys: ["showGuides", "removeStrokes"],
     open: false
   }
 ];

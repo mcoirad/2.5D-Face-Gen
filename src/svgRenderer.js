@@ -1,6 +1,7 @@
 export function renderFaceSvg(rig) {
   return `
     <svg viewBox="0 0 500 500" role="img" aria-label="2.5D anime face preview">
+      ${rig.removeStrokes ? renderRemoveStrokesStyle() : ""}
       ${renderHelmetLayers(rig.helmet?.back)}
       ${renderHair(rig.hair, "back")}
       ${renderHairV2(rig.hairV2, "back")}
@@ -14,6 +15,16 @@ export function renderFaceSvg(rig) {
       ${rig.features.brows.map(renderBrow).join("")}
       ${rig.features.eyes.map(renderEye).join("")}
     </svg>
+  `;
+}
+
+function renderRemoveStrokesStyle() {
+  return `
+    <style>
+      * {
+        stroke: none !important;
+      }
+    </style>
   `;
 }
 
@@ -42,7 +53,7 @@ function renderHead(head) {
   return `
     <path
       d="${renderPointPath(head.outline)} Z"
-      fill="#fff"
+      fill="#f6f1e8"
       stroke="black"
       stroke-width="4"
       stroke-linejoin="round"

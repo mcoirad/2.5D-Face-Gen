@@ -66,6 +66,9 @@ export const defaultParams = {
   hairV2PerpBias: 0.7,
   hairV2RadialBias: 0.2,
   hairV2Gravity: 0.5,
+  hairV2CurlInterval: 200,
+  hairV2CurlAngle: 0,
+  hairV2CurlPeriod: 0,
   eyeSpacing: 46,
   eyeY: -35,
   eyeSize: 18,
@@ -189,7 +192,10 @@ export const sliderConfig = {
   hairV2PartLength: [0, 1, 0.01],
   hairV2PerpBias: [0, 1, 0.01],
   hairV2RadialBias: [0, 1, 0.01],
-  hairV2Gravity: [0, 1, 0.01]
+  hairV2Gravity: [0, 1, 0.01],
+  hairV2CurlInterval: [15, 200, 1],
+  hairV2CurlAngle: [0, 45, 1],
+  hairV2CurlPeriod: [0, 12, 1]
 };
 
 export const selectConfig = {

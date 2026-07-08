@@ -174,7 +174,10 @@ const controlGroups = [
       "hairV2PartLength",
       "hairV2PerpBias",
       "hairV2RadialBias",
-      "hairV2Gravity"
+      "hairV2Gravity",
+      "hairV2CurlInterval",
+      "hairV2CurlAngle",
+      "hairV2CurlPeriod"
     ],
     open: true
   },

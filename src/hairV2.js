@@ -6,8 +6,10 @@ import {
   normalizePoint,
   offsetPoint,
   resolveHairColor,
+  rotatePoint,
   scalePoint,
-  seededRandom
+  seededRandom,
+  subtractPoints
 } from "./rig.js";
 
 // Latitude (theta) where the scalp ends, head-fixed. Crown is at -PI/2. The
@@ -136,12 +138,54 @@ function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color
   const width = params.hairV2LockWidth * lerp(0.85, 1.15, seededRandom(index, 3));
   const length = params.hairV2LockLength * lerp(0.85, 1.15, seededRandom(index, 4));
   const curve = length * 0.12 * (seededRandom(index, 5) < 0.5 ? -1 : 1) * curveMirror;
+  const curlAngle = params.hairV2CurlAngle * Math.PI / 180 * curveMirror;
 
-  return buildLockGeometry(base, direction, width, length, curve, color, base.depthPosition, params.hairV2LockRootRound);
+  return buildLockGeometry(
+    base,
+    direction,
+    width,
+    length,
+    curve,
+    color,
+    base.depthPosition,
+    params.hairV2LockRootRound,
+    params.hairV2CurlInterval,
+    curlAngle,
+    params.hairV2CurlPeriod,
+    index
+  );
 }
 
-function buildLockGeometry(base, direction, width, length, curve, color, depthPosition, rootRound = 0) {
+function buildLockGeometry(base, direction, width, length, curve, color, depthPosition, rootRound, interval, curlAngle, curlPeriod, index) {
+  const segmentCount = Math.max(1, Math.round(length / interval));
   const tangent = { x: -direction.y, y: direction.x };
+
+  const geometry = segmentCount <= 1
+    ? buildStraightLockGeometry(base, direction, tangent, width, length, curve)
+    : buildCurlyLockGeometry(base, direction, tangent, width, length, curlAngle, curlPeriod, segmentCount, index);
+
+  // Bulge the back edge (root) outward, away from the tip, instead of closing
+  // it with a flat line. That flat closing line is what makes the base read
+  // as a triangle; a curve here rounds it into a soft "shield" shape.
+  const rootBulge = width * 0.35 * rootRound;
+  const rootControl = rootBulge > 0.01
+    ? offsetPoint(base, direction, -rootBulge)
+    : null;
+
+  return {
+    ...geometry,
+    rootControl,
+    notch: null,
+    detailLines: [],
+    layer: depthPosition < FRONT_BACK_DEPTH_THRESHOLD ? "back" : "front",
+    fill: color.fill,
+    stroke: color.stroke,
+    opacity: 0.95
+  };
+}
+
+// The original single-bend lock: root -> tip in one bezier per side.
+function buildStraightLockGeometry(base, direction, tangent, width, length, curve) {
   const rootLeft = offsetPoint(base, tangent, -width / 2);
   const rootRight = offsetPoint(base, tangent, width / 2);
   const tip = offsetPoint(base, direction, length);
@@ -160,27 +204,89 @@ function buildLockGeometry(base, direction, width, length, curve, color, depthPo
     tension: 0.5,
     asymmetry: 0
   });
-  // Bulge the back edge (root) outward, away from the tip, instead of closing
-  // it with a flat line. That flat closing line is what makes the base read
-  // as a triangle; a curve here rounds it into a soft "shield" shape.
-  const rootBulge = width * 0.35 * rootRound;
-  const rootControl = rootBulge > 0.01
-    ? offsetPoint(base, direction, -rootBulge)
-    : null;
+
+  return { rootLeft, rootRight, tip, ...curveControls };
+}
+
+// A multi-segment spine walked from base toward tip, rotating heading by
+// curlAngle each step (sign flipping every curlPeriod segments; curlPeriod <= 0
+// means never flip, i.e. a continuous one-direction spiral). A width ribbon is
+// offset perpendicular to the spine and tapered to a point at the tip.
+function buildCurlyLockGeometry(base, direction, tangent, width, length, curlAngle, curlPeriod, segmentCount, index) {
+  const interval = length / segmentCount;
+  const { points, headings } = buildSpine(base, direction, interval, curlAngle, curlPeriod, segmentCount, index);
+  const { leftEdge, rightEdge } = buildRibbonEdges(points, headings, width);
+  const leftSegments = buildSmoothPath(leftEdge);
+  const rightSegments = buildSmoothPath([...rightEdge].reverse());
 
   return {
-    rootLeft,
-    rootRight,
-    tip,
-    rootControl,
-    notch: null,
-    ...curveControls,
-    detailLines: [],
-    layer: depthPosition < FRONT_BACK_DEPTH_THRESHOLD ? "back" : "front",
-    fill: color.fill,
-    stroke: color.stroke,
-    opacity: 0.95
+    rootLeft: leftEdge[0],
+    rootRight: rightEdge[0],
+    tip: points[points.length - 1],
+    spineLeft: leftSegments,
+    spineRight: rightSegments
   };
+}
+
+function buildSpine(base, direction, interval, curlAngle, curlPeriod, segmentCount, index) {
+  const points = [base];
+  const headings = [];
+  let heading = direction;
+  let cursor = base;
+
+  for (let seg = 0; seg < segmentCount; seg += 1) {
+    const segInterval = interval * lerp(0.85, 1.15, seededRandom(index, 20 + seg * 2));
+    cursor = offsetPoint(cursor, heading, segInterval);
+    points.push(cursor);
+    headings.push(heading);
+
+    const flip = curlPeriod > 0 && Math.floor((seg + 1) / curlPeriod) % 2 === 1;
+    const signedAngle = (flip ? -1 : 1) * curlAngle;
+    const jitteredAngle = signedAngle * lerp(0.85, 1.15, seededRandom(index, 20 + seg * 2 + 1));
+    heading = normalizePoint(rotatePoint(heading, jitteredAngle));
+  }
+
+  return { points, headings };
+}
+
+function buildRibbonEdges(points, headings, width) {
+  const last = points.length - 1;
+  const leftEdge = [];
+  const rightEdge = [];
+
+  for (let k = 0; k <= last; k += 1) {
+    const tangent = k === 0
+      ? headings[0]
+      : k === last
+        ? headings[last - 1]
+        : normalizePoint(addPoints(headings[k - 1], headings[k]));
+    const perp = { x: -tangent.y, y: tangent.x };
+    const halfWidth = (width / 2) * (1 - k / last);
+
+    leftEdge.push(offsetPoint(points[k], perp, -halfWidth));
+    rightEdge.push(offsetPoint(points[k], perp, halfWidth));
+  }
+
+  return { leftEdge, rightEdge };
+}
+
+// Catmull-Rom to cubic bezier, so a chain of spine points reads as a smooth
+// curl instead of a faceted polyline.
+function buildSmoothPath(pointList, tensionFactor = 0.35) {
+  const segments = [];
+
+  for (let k = 0; k < pointList.length - 1; k += 1) {
+    const p0 = pointList[k - 1] ?? pointList[k];
+    const p1 = pointList[k];
+    const p2 = pointList[k + 1];
+    const p3 = pointList[k + 2] ?? p2;
+    const c1 = addPoints(p1, scalePoint(subtractPoints(p2, p0), tensionFactor / 3));
+    const c2 = addPoints(p2, scalePoint(subtractPoints(p1, p3), tensionFactor / 3));
+
+    segments.push({ c1, c2, to: p2 });
+  }
+
+  return segments;
 }
 
 function makePartGuide(scalp, partU, partHalf) {

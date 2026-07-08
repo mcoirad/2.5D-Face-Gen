@@ -175,6 +175,22 @@ function renderHairLockPath(lock) {
     ? `Q ${lock.rootControl.x} ${lock.rootControl.y} ${lock.rootLeft.x} ${lock.rootLeft.y} Z`
     : "Z";
 
+  if (lock.spineLeft) {
+    const leftPath = lock.spineLeft
+      .map(seg => `C ${seg.c1.x} ${seg.c1.y} ${seg.c2.x} ${seg.c2.y} ${seg.to.x} ${seg.to.y}`)
+      .join(" ");
+    const rightPath = lock.spineRight
+      .map(seg => `C ${seg.c1.x} ${seg.c1.y} ${seg.c2.x} ${seg.c2.y} ${seg.to.x} ${seg.to.y}`)
+      .join(" ");
+
+    return [
+      `M ${lock.rootLeft.x} ${lock.rootLeft.y}`,
+      leftPath,
+      rightPath,
+      rootClose
+    ].join(" ");
+  }
+
   if (lock.notch) {
     return [
       `M ${lock.rootLeft.x} ${lock.rootLeft.y}`,

@@ -1141,6 +1141,23 @@ export function scalePoint(point, amount) {
   };
 }
 
+export function subtractPoints(first, second) {
+  return {
+    x: first.x - second.x,
+    y: first.y - second.y
+  };
+}
+
+export function rotatePoint(point, angle) {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+
+  return {
+    x: point.x * cos - point.y * sin,
+    y: point.x * sin + point.y * cos
+  };
+}
+
 export function seededRandom(index, salt) {
   const value = Math.sin(index * 127.1 + salt * 311.7) * 43758.5453123;
 

@@ -35,18 +35,19 @@ function renderBody(body) {
   }
 
   return `
-    ${renderNeck(body.neck)}
+    ${renderBodyShape(body.neck)}
+    ${renderBodyShape(body.torso)}
     ${body.shoulders.map(renderShoulderGuide).join("")}
     ${body.connectors.map(renderConnector).join("")}
   `;
 }
 
-function renderNeck(neck) {
+function renderBodyShape(shape) {
   return `
     <path
-      d="${renderPointPath(neck.points)} Z"
-      fill="${neck.fill}"
-      stroke="${neck.stroke}"
+      d="${renderPointPath(shape.points)} Z"
+      fill="${shape.fill}"
+      stroke="${shape.stroke}"
       stroke-width="4"
       stroke-linejoin="round"
     />

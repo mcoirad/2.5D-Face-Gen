@@ -1249,7 +1249,7 @@ const SHOULDER_BASE_ANGLE = Math.PI / 2;
 
 function solveBody(params, pose, structure) {
   if (!params.showBody) {
-    return { neck: null, shoulders: [], connectors: [] };
+    return { neck: null, torso: null, shoulders: [], connectors: [] };
   }
 
   const projectStructure = createStructureProjector(params);
@@ -1294,12 +1294,36 @@ function solveBody(params, pose, structure) {
     { cx: shoulderRight.x, cy: shoulderRight.y, r: params.shoulderRadius }
   ];
 
+  const shoulderTopLeft = { x: shoulders[0].cx, y: shoulders[0].cy - shoulders[0].r };
+  const shoulderTopRight = { x: shoulders[1].cx, y: shoulders[1].cy - shoulders[1].r };
+
   const connectors = [
-    [neckBottomLeft, { x: shoulders[0].cx, y: shoulders[0].cy - shoulders[0].r }],
-    [neckBottomRight, { x: shoulders[1].cx, y: shoulders[1].cy - shoulders[1].r }]
+    [neckBottomLeft, shoulderTopLeft],
+    [neckBottomRight, shoulderTopRight]
   ];
 
-  return { neck, shoulders, connectors };
+  // Isoceles trapezoid hanging from the shoulder tops (screen space, since the
+  // shoulder tops are themselves already-projected/orbited points, not a
+  // simple model-space pair) - each side extends straight down by
+  // torsoLength, narrowing toward the shared centerline by torsoNarrowing
+  // (0 = same width as the shoulders, 1 = converges to a point).
+  const torsoCenterX = (shoulderTopLeft.x + shoulderTopRight.x) / 2;
+  const torsoBottomLeft = {
+    x: lerp(shoulderTopLeft.x, torsoCenterX, params.torsoNarrowing),
+    y: shoulderTopLeft.y + params.torsoLength
+  };
+  const torsoBottomRight = {
+    x: lerp(shoulderTopRight.x, torsoCenterX, params.torsoNarrowing),
+    y: shoulderTopRight.y + params.torsoLength
+  };
+
+  const torso = {
+    points: [shoulderTopLeft, shoulderTopRight, torsoBottomRight, torsoBottomLeft],
+    fill: params.bodyColor,
+    stroke: "black"
+  };
+
+  return { neck, torso, shoulders, connectors };
 }
 
 function makeHelmetShell(project, skull, pose) {

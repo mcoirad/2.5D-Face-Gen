@@ -60,6 +60,8 @@ const controlGroups = [
       "neckBottomWidth",
       "neckOverlap",
       "torsoWidth",
+      "torsoLength",
+      "torsoNarrowing",
       "shoulderRadius",
       "shoulderGap"
     ],
@@ -594,6 +596,9 @@ function createFaceIo() {
         <button type="button" id="face-import">Import JSON</button>
         <input type="file" id="face-import-file" accept="application/json,.json">
       </div>
+      <div class="face-io-row">
+        <button type="button" id="face-copy">Copy current face JSON</button>
+      </div>
       <div class="face-io-status" id="face-io-status" aria-live="polite"></div>
     </div>
   `;
@@ -643,6 +648,15 @@ function createFaceIo() {
   panel.querySelector("#face-export").addEventListener("click", () => {
     exportFacesJson();
     status.textContent = "Exported saved faces.";
+  });
+
+  panel.querySelector("#face-copy").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(params, null, 2));
+      status.textContent = "Copied current face JSON to clipboard.";
+    } catch (error) {
+      status.textContent = "Copy failed.";
+    }
   });
 
   panel.querySelector("#face-import").addEventListener("click", () => {

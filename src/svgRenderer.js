@@ -295,18 +295,19 @@ function renderEye(eye, index) {
         <stop offset="1" stop-color="${eye.irisColor}" />
       </radialGradient>` : ""}
     </defs>
+    ${renderEyeCornerMakeup(eye.cornerMakeup)}
     <path
       d="${path}"
       fill="white"
-      stroke="black"
-      stroke-width="3"
-      stroke-linejoin="round"
+      stroke="none"
     />
     <g clip-path="url(#${clipId})">
       <circle cx="${iris.cx}" cy="${iris.cy}" r="${iris.r}" fill="${irisFill}" stroke="black" stroke-width="1.5" />
       <circle cx="${pupil.cx}" cy="${pupil.cy}" r="${pupil.r}" fill="black" />
       ${shine ? `<g clip-path="url(#${irisClipId})"><circle cx="${shine.cx}" cy="${shine.cy}" r="${shine.r}" fill="white" /></g>` : ""}
     </g>
+    ${renderEyeLidStrokes(eye)}
+    ${renderEyeLashes(eye)}
   `;
 }
 
@@ -320,6 +321,61 @@ function renderEyePath(eye) {
     `Q ${bottomControl.x} ${bottomControl.y} ${bottomInner.x} ${bottomInner.y}`,
     "Z"
   ].join(" ");
+}
+
+function renderEyeLidStrokes(eye) {
+  const { topInner, topOuter, bottomOuter, bottomInner, topControl, bottomControl } = eye.quad;
+  const w = eye.lidWidths ?? { upper: 3, outer: 3, lower: 3, inner: 3 };
+  const edges = [
+    { width: w.upper, d: `M ${topInner.x} ${topInner.y} Q ${topControl.x} ${topControl.y} ${topOuter.x} ${topOuter.y}` },
+    { width: w.outer, d: `M ${topOuter.x} ${topOuter.y} L ${bottomOuter.x} ${bottomOuter.y}` },
+    { width: w.lower, d: `M ${bottomOuter.x} ${bottomOuter.y} Q ${bottomControl.x} ${bottomControl.y} ${bottomInner.x} ${bottomInner.y}` },
+    { width: w.inner, d: `M ${bottomInner.x} ${bottomInner.y} L ${topInner.x} ${topInner.y}` }
+  ];
+
+  return edges
+    .filter(edge => edge.width > 0)
+    .map(edge => `
+      <path
+        d="${edge.d}"
+        fill="none"
+        stroke="black"
+        stroke-width="${edge.width}"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    `)
+    .join("");
+}
+
+function renderEyeLashes(eye) {
+  const segments = [...(eye.lashes?.upper ?? []), ...(eye.lashes?.lower ?? [])];
+
+  return segments
+    .map(seg => `
+      <path
+        d="M ${seg.start.x} ${seg.start.y} L ${seg.end.x} ${seg.end.y}"
+        fill="none"
+        stroke="black"
+        stroke-width="2"
+        stroke-linecap="round"
+      />
+    `)
+    .join("");
+}
+
+function renderEyeCornerMakeup(corner) {
+  if (!corner) {
+    return "";
+  }
+
+  return `
+    <path
+      d="M ${corner.baseTopLeft.x} ${corner.baseTopLeft.y} Q ${corner.ctrlTop.x} ${corner.ctrlTop.y} ${corner.tip.x} ${corner.tip.y} Q ${corner.ctrlBottom.x} ${corner.ctrlBottom.y} ${corner.baseBottomRight.x} ${corner.baseBottomRight.y} Z"
+      fill="black"
+      stroke="none"
+    />
+  `;
 }
 
 function lightenHex(value, amount) {

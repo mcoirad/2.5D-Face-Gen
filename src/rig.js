@@ -1574,6 +1574,47 @@ function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, pa
       }
     : null;
 
+  // Per-edge lid stroke widths (0 = no line on that edge).
+  const lidWidths = {
+    upper: params.eyeUpperLidWidth,
+    outer: params.eyeOuterCornerWidth,
+    lower: params.eyeLowerLidWidth,
+    inner: params.eyeInnerCornerWidth
+  };
+
+  // Eyelashes as individual segments sampled along each lid curve. Upper lashes
+  // run topInner -> topOuter (outer corner at t=1); lower run bottomOuter ->
+  // bottomInner (outer corner at t=0).
+  const lashes = {
+    upper: params.showUpperLashes
+      ? makeLashSegments(localCorners.topInner, topControl, localCorners.topOuter, params.eyeLashCount, params.eyeLashLength, place, false, true)
+      : [],
+    lower: params.showLowerLashes
+      ? makeLashSegments(localCorners.bottomOuter, bottomControl, localCorners.bottomInner, params.eyeLashCount, params.eyeLashLength, place, true, false)
+      : []
+  };
+
+  // Corner triangle behind the eye: base at inner-top and outer-bottom, tip past
+  // the outer-top corner, with each edge to the tip curved.
+  const cornerMakeup = params.showEyeCorner
+    ? (() => {
+        const baseTopLeft = localCorners.topInner;
+        const baseBottomRight = localCorners.bottomOuter;
+        const tipLocal = {
+          x: localCorners.topOuter.x + params.eyeCornerExtend,
+          y: localCorners.topOuter.y - params.eyeCornerExtend
+        };
+
+        return {
+          baseTopLeft: place(baseTopLeft),
+          ctrlTop: place(curvedEdgeControl(baseTopLeft, tipLocal, params.eyeCornerTopCurve)),
+          tip: place(tipLocal),
+          ctrlBottom: place(curvedEdgeControl(tipLocal, baseBottomRight, params.eyeCornerBottomCurve)),
+          baseBottomRight: place(baseBottomRight)
+        };
+      })()
+    : null;
+
   return {
     side: anatomicalSide,
     center,
@@ -1581,6 +1622,9 @@ function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, pa
     iris,
     pupil,
     shine,
+    lidWidths,
+    lashes,
+    cornerMakeup,
     irisColor: isHexColor(params.eyeIrisColor) ? params.eyeIrisColor : "#5b4433",
     irisGradient: Boolean(params.eyeIrisGradient),
     // Compatibility fields for the helmet faceplate eye openings.
@@ -1588,6 +1632,72 @@ function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, pa
     upperOpen: (upper + outerUp) * s,
     visible
   };
+}
+
+// Evaluate a quadratic bezier and its tangent in local eye space.
+function quadPoint(p0, c, p1, t) {
+  const mt = 1 - t;
+
+  return {
+    x: mt * mt * p0.x + 2 * mt * t * c.x + t * t * p1.x,
+    y: mt * mt * p0.y + 2 * mt * t * c.y + t * t * p1.y
+  };
+}
+
+function quadTangent(p0, c, p1, t) {
+  const mt = 1 - t;
+
+  return {
+    x: 2 * mt * (c.x - p0.x) + 2 * t * (p1.x - c.x),
+    y: 2 * mt * (c.y - p0.y) + 2 * t * (p1.y - c.y)
+  };
+}
+
+// Control point for a curved corner edge: midpoint pushed perpendicular by a
+// signed fraction of the edge length.
+function curvedEdgeControl(a, b, curveAmount) {
+  const edge = { x: b.x - a.x, y: b.y - a.y };
+  const length = Math.hypot(edge.x, edge.y) || 1;
+  const normal = { x: -edge.y / length, y: edge.x / length };
+
+  return {
+    x: (a.x + b.x) / 2 + normal.x * curveAmount * length * 0.5,
+    y: (a.y + b.y) / 2 + normal.y * curveAmount * length * 0.5
+  };
+}
+
+// Lash segments along a lid curve (local frame), placed to screen space. Lashes
+// point away from the eye interior (up for the upper lid, down for the lower)
+// and grow longer + flare outward toward the outer corner.
+function makeLashSegments(p0, c, p1, count, length, place, outerAtStart, up) {
+  const n = Math.round(count);
+
+  if (n <= 0 || length <= 0) {
+    return [];
+  }
+
+  const segments = [];
+
+  for (let i = 0; i < n; i += 1) {
+    const t = (i + 0.5) / n;
+    const point = quadPoint(p0, c, p1, t);
+    const tangent = quadTangent(p0, c, p1, t);
+    const tlen = Math.hypot(tangent.x, tangent.y) || 1;
+    let normal = { x: -tangent.y / tlen, y: tangent.x / tlen };
+
+    if (up ? normal.y > 0 : normal.y < 0) {
+      normal = { x: -normal.x, y: -normal.y };
+    }
+
+    const outerness = outerAtStart ? 1 - t : t;
+    const direction = normalizePoint({ x: normal.x + 0.6 * outerness, y: normal.y });
+    const lashLength = length * lerp(0.45, 1, outerness);
+    const end = { x: point.x + direction.x * lashLength, y: point.y + direction.y * lashLength };
+
+    segments.push({ start: place(point), end: place(end) });
+  }
+
+  return segments;
 }
 
 function makeMouth(project, skull, poseSignValue, referenceMouth, mouthScale, params, yOffset) {

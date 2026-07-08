@@ -70,7 +70,19 @@ const controlGroups = [
       "eyeIrisColor",
       "eyeIrisGradient",
       "eyeShine",
-      "eyeShineSize"
+      "eyeShineSize",
+      "eyeUpperLidWidth",
+      "eyeOuterCornerWidth",
+      "eyeLowerLidWidth",
+      "eyeInnerCornerWidth",
+      "showUpperLashes",
+      "showLowerLashes",
+      "eyeLashLength",
+      "eyeLashCount",
+      "showEyeCorner",
+      "eyeCornerExtend",
+      "eyeCornerTopCurve",
+      "eyeCornerBottomCurve"
     ],
     open: true
   },
@@ -201,16 +213,32 @@ function createRandomizerControl() {
   `;
 
   wrapper.querySelector("button").addEventListener("click", () => {
-    randomizeSliderParams();
-    rebuildControls();
+    randomizeSliders(Object.keys(sliderConfig));
   });
 
   return wrapper;
 }
 
-function randomizeSliderParams() {
-  for (const [key, [min, max, step]] of Object.entries(sliderConfig)) {
+function randomizeSliders(keys) {
+  for (const key of keys) {
+    const [min, max, step] = sliderConfig[key];
     params[key] = randomSliderValue(min, max, step);
+    updateSliderControl(key);
+  }
+
+  render();
+}
+
+function updateSliderControl(key) {
+  const input = document.getElementById(key);
+  const valueLabel = document.getElementById(`${key}-value`);
+
+  if (input) {
+    input.value = params[key];
+  }
+
+  if (valueLabel) {
+    valueLabel.textContent = params[key];
   }
 }
 
@@ -237,16 +265,35 @@ function createControlGroup(group) {
     return null;
   }
 
+  const groupSliderKeys = group.keys.filter(key => sliderConfig[key]);
+
   const details = document.createElement("details");
   details.className = "control-group";
   details.open = group.open;
   details.innerHTML = `
-    <summary>${group.title}</summary>
+    <summary>
+      <span>${group.title}</span>
+    </summary>
     <div class="control-group-content"></div>
   `;
 
   const content = details.querySelector(".control-group-content");
   fields.forEach(field => content.appendChild(field));
+
+  if (groupSliderKeys.length) {
+    const randomizeButton = document.createElement("button");
+    randomizeButton.type = "button";
+    randomizeButton.className = "group-randomize";
+    randomizeButton.textContent = "Randomize";
+
+    randomizeButton.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      randomizeSliders(groupSliderKeys);
+    });
+
+    details.querySelector("summary").appendChild(randomizeButton);
+  }
 
   return details;
 }

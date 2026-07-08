@@ -106,9 +106,20 @@ label {
 }
 
 .control-group summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   cursor: pointer;
   font-weight: 650;
   padding: 8px 10px;
+}
+
+.group-randomize {
+  min-height: 26px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-weight: normal;
 }
 
 .control-group-content {

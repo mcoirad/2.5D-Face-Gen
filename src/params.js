@@ -193,8 +193,8 @@ export const sliderConfig = {
   hairV2PerpBias: [0, 1, 0.01],
   hairV2RadialBias: [0, 1, 0.01],
   hairV2Gravity: [0, 1, 0.01],
-  hairV2CurlInterval: [15, 200, 1],
-  hairV2CurlAngle: [0, 45, 1],
+  hairV2CurlInterval: [5, 200, 1],
+  hairV2CurlAngle: [0, 60, 1],
   hairV2CurlPeriod: [0, 12, 1]
 };
 

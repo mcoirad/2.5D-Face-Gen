@@ -145,6 +145,7 @@ export function solveFaceRig(params) {
     head,
     hair: solveHair(params, pose, head.structure),
     hairV2: params.showHairV2 ? solveHairV2(params, pose, head.structure) : null,
+    body: solveBody(params, pose, head.structure),
     helmet: solveHelmet(params, pose, head.structure, features),
     features,
     visibility: solveVisibility(pose.amount)
@@ -1240,6 +1241,65 @@ function solveHelmet(params, pose, structure, features) {
     back,
     front
   };
+}
+
+// Shoulders sit directly left/right of the skull's central axis at yaw 0. This
+// is the "at rest" longitude each orbits from as the head yaws.
+const SHOULDER_BASE_ANGLE = Math.PI / 2;
+
+function solveBody(params, pose, structure) {
+  if (!params.showBody) {
+    return { neck: null, shoulders: [], connectors: [] };
+  }
+
+  const projectStructure = createStructureProjector(params);
+  const { skull } = structure;
+  const anchorX = skull.cx;
+  const skullBottomY = skull.cy + skull.ry;
+  const topY = skullBottomY - params.neckOverlap;
+  const bottomY = skullBottomY + params.neckLength;
+
+  const neckTopLeft = projectStructure(anchorX - params.neckTopWidth / 2, topY, skull.z);
+  const neckTopRight = projectStructure(anchorX + params.neckTopWidth / 2, topY, skull.z);
+  const neckBottomRight = projectStructure(anchorX + params.neckBottomWidth / 2, bottomY, skull.z);
+  const neckBottomLeft = projectStructure(anchorX - params.neckBottomWidth / 2, bottomY, skull.z);
+
+  const neck = {
+    points: [neckTopLeft, neckTopRight, neckBottomRight, neckBottomLeft],
+    fill: params.bodyColor,
+    stroke: "black"
+  };
+
+  // Shoulders orbit the skull's own vertical (Y) axis as the head yaws, the
+  // same guideAngle/sin/cos rotation hairV2's scalpPoint uses for locks
+  // placed around the head, rather than sliding sideways with the jaw.
+  // Center is one radius plus the gap below the neck bottom, so each circle's
+  // top edge lands on the neck's bottom edge at gap=0 and can be pushed
+  // further down without needing to be re-tuned against the radius.
+  const shoulderModelY = bottomY + params.shoulderRadius + params.shoulderGap;
+  const orbitRadius = params.torsoWidth / 2;
+
+  const orbitPoint = baseAngle => {
+    const guideAngle = baseAngle - pose.yaw * Math.PI / 2;
+    const x = anchorX + Math.sin(guideAngle) * orbitRadius;
+    const z = skull.z + Math.cos(guideAngle) * orbitRadius;
+
+    return projectStructure(x, shoulderModelY, z);
+  };
+
+  const shoulderLeft = orbitPoint(-SHOULDER_BASE_ANGLE);
+  const shoulderRight = orbitPoint(SHOULDER_BASE_ANGLE);
+  const shoulders = [
+    { cx: shoulderLeft.x, cy: shoulderLeft.y, r: params.shoulderRadius },
+    { cx: shoulderRight.x, cy: shoulderRight.y, r: params.shoulderRadius }
+  ];
+
+  const connectors = [
+    [neckBottomLeft, { x: shoulders[0].cx, y: shoulders[0].cy - shoulders[0].r }],
+    [neckBottomRight, { x: shoulders[1].cx, y: shoulders[1].cy - shoulders[1].r }]
+  ];
+
+  return { neck, shoulders, connectors };
 }
 
 function makeHelmetShell(project, skull, pose) {

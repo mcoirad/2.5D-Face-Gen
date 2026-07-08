@@ -51,6 +51,21 @@ const controlGroups = [
     open: false
   },
   {
+    title: "Body",
+    keys: [
+      "showBody",
+      "bodyColor",
+      "neckLength",
+      "neckTopWidth",
+      "neckBottomWidth",
+      "neckOverlap",
+      "torsoWidth",
+      "shoulderRadius",
+      "shoulderGap"
+    ],
+    open: false
+  },
+  {
     title: "Eyes",
     keys: [
       "eyeSpacing",
@@ -177,7 +192,12 @@ const controlGroups = [
       "hairV2Gravity",
       "hairV2CurlInterval",
       "hairV2CurlAngle",
-      "hairV2CurlPeriod"
+      "hairV2CurlPeriod",
+      "showHairV2Headband",
+      "hairV2HeadbandColor",
+      "hairV2HeadbandPosition",
+      "hairV2HeadbandWidth",
+      "hairV2HeadbandStrength"
     ],
     open: true
   },

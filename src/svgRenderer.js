@@ -2,6 +2,7 @@ export function renderFaceSvg(rig) {
   return `
     <svg viewBox="0 0 500 500" role="img" aria-label="2.5D anime face preview">
       ${rig.removeStrokes ? renderRemoveStrokesStyle() : ""}
+      ${renderBody(rig.body)}
       ${renderHelmetLayers(rig.helmet?.back)}
       ${renderHair(rig.hair, "back")}
       ${renderHairV2(rig.hairV2, "back")}
@@ -25,6 +26,56 @@ function renderRemoveStrokesStyle() {
         stroke: none !important;
       }
     </style>
+  `;
+}
+
+function renderBody(body) {
+  if (!body || !body.neck) {
+    return "";
+  }
+
+  return `
+    ${renderNeck(body.neck)}
+    ${body.shoulders.map(renderShoulderGuide).join("")}
+    ${body.connectors.map(renderConnector).join("")}
+  `;
+}
+
+function renderNeck(neck) {
+  return `
+    <path
+      d="${renderPointPath(neck.points)} Z"
+      fill="${neck.fill}"
+      stroke="${neck.stroke}"
+      stroke-width="4"
+      stroke-linejoin="round"
+    />
+  `;
+}
+
+function renderShoulderGuide(shoulder) {
+  return `
+    <circle
+      cx="${shoulder.cx}"
+      cy="${shoulder.cy}"
+      r="${shoulder.r}"
+      fill="none"
+      stroke="#8a8a8a"
+      stroke-width="2"
+      stroke-dasharray="7 5"
+    />
+  `;
+}
+
+function renderConnector([from, to]) {
+  return `
+    <path
+      d="M ${from.x} ${from.y} L ${to.x} ${to.y}"
+      fill="none"
+      stroke="#8a8a8a"
+      stroke-width="2"
+      stroke-dasharray="7 5"
+    />
   `;
 }
 
@@ -119,13 +170,35 @@ function renderHairV2(hairV2, layer) {
     .filter(item => matchesHairLayer(item, layer))
     .map(renderHairLock)
     .join("");
+  const headband = (hairV2.headbandBelt ?? [])
+    .filter(item => matchesHairLayer(item, layer))
+    .map(renderHeadbandBelt)
+    .join("");
   const partGuide = layer === "front" && hairV2.showPartGuide
     ? renderHairV2PartGuide(hairV2.partGuide)
     : "";
 
   return `
     ${locks}
+    ${headband}
     ${partGuide}
+  `;
+}
+
+function renderHeadbandBelt(strip) {
+  if (!strip.points?.length) {
+    return "";
+  }
+
+  return `
+    <path
+      d="${renderPointPath(strip.points)} Z"
+      fill="${strip.fill}"
+      stroke="${strip.stroke}"
+      stroke-width="2.5"
+      stroke-linejoin="round"
+      opacity="0.95"
+    />
   `;
 }
 

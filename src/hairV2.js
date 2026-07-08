@@ -32,6 +32,9 @@ const SCALP_Z = 72;
 // negative threshold instead of exactly 0.
 const FRONT_BACK_MARGIN_DEGREES = 10;
 const FRONT_BACK_DEPTH_THRESHOLD = Math.cos((90 + FRONT_BACK_MARGIN_DEGREES) * Math.PI / 180);
+// v-units of smoothstep margin the headband's pull fades in/out over, on each
+// side of [vLow, vHigh], so the edge isn't a hard direction snap.
+const HEADBAND_EDGE_SOFTNESS = 0.06;
 
 export function solveHairV2(params, pose, structure) {
   const projectStructure = createStructureProjector(params);
@@ -41,6 +44,27 @@ export function solveHairV2(params, pose, structure) {
   const partU = params.hairV2PartOffset * 0.9;
   const partHalf = lerp(0.03, 0.55, params.hairV2PartLength);
   const midpoint = scalp(partU, PART_MID_V);
+
+  const headbandHalf = params.hairV2HeadbandWidth / 2;
+  let headbandVLow = params.hairV2HeadbandPosition - headbandHalf;
+  let headbandVHigh = params.hairV2HeadbandPosition + headbandHalf;
+
+  // Only guard the crown side: sliding the band up if it would dip below
+  // v=0 preserves its width instead of collapsing it (independently
+  // clamping each edge would do that). The hairline side (v=1) is
+  // intentionally left uncapped -- the band can be pushed past the
+  // hairline, onto the forehead, even though that's past what this scalp
+  // model otherwise represents; visual collision with face features there
+  // is expected and fine for now.
+  if (headbandVLow < 0) {
+    const shift = -headbandVLow;
+    headbandVLow += shift;
+    headbandVHigh += shift;
+  }
+  headbandVLow = Math.max(headbandVLow, 0);
+
+  const headbandActive = Boolean(params.showHairV2Headband) && headbandVHigh > headbandVLow;
+  const headband = headbandActive ? { active: true, vLow: headbandVLow, vHigh: headbandVHigh } : null;
 
   const count = Math.round(params.hairV2LockCount);
   const color = resolveHairColor(params, "hairV2Color");
@@ -56,17 +80,23 @@ export function solveHairV2(params, pose, structure) {
 
   for (let i = 0; i < sourceCount; i += 1) {
     const { u, v } = stratifiedUV(i, cols, rows, mirror);
-    locks.push(makeV2Lock(i, u, v, scalp, partU, partHalf, midpoint, params, color));
+    locks.push(makeV2Lock(i, u, v, scalp, partU, partHalf, midpoint, params, color, 1, headband));
 
     if (mirror) {
-      locks.push(makeV2Lock(i, -u, v, scalp, partU, partHalf, midpoint, params, color, -1));
+      locks.push(makeV2Lock(i, -u, v, scalp, partU, partHalf, midpoint, params, color, -1, headband));
     }
   }
+
+  const headbandColor = resolveHairColor(params, "hairV2HeadbandColor");
+  const headbandBelt = headbandActive
+    ? makeHeadbandBelt(scalp, headbandVLow, headbandVHigh, headbandColor)
+    : null;
 
   return {
     locks,
     partGuide: makePartGuide(scalp, partU, partHalf),
-    showPartGuide: Boolean(params.showHairV2PartGuide)
+    showPartGuide: Boolean(params.showHairV2PartGuide),
+    headbandBelt
   };
 }
 
@@ -94,6 +124,16 @@ function scalpPoint(u, v, projectStructure, skull, pose) {
   };
 }
 
+// 0 outside [vLow, vHigh], approaching 1 well inside, fading over
+// HEADBAND_EDGE_SOFTNESS on each edge. Two independent smoothsteps multiplied
+// together — degrades gracefully for narrow bands (product peaks below 1
+// instead of forming a clean plateau) rather than needing special-casing.
+function headbandMembership(v, vLow, vHigh) {
+  const enter = smoothstep(vLow - HEADBAND_EDGE_SOFTNESS, vLow + HEADBAND_EDGE_SOFTNESS, v);
+  const exit = 1 - smoothstep(vHigh - HEADBAND_EDGE_SOFTNESS, vHigh + HEADBAND_EDGE_SOFTNESS, v);
+  return clamp(enter * exit, 0, 1);
+}
+
 // One jittered cell of a cols x rows grid over the (u, v) scalp map.
 function stratifiedUV(index, cols, rows, mirror = false) {
   const cellU = index % cols;
@@ -106,7 +146,7 @@ function stratifiedUV(index, cols, rows, mirror = false) {
   return { u, v };
 }
 
-function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color, curveMirror = 1) {
+function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color, curveMirror = 1, headband = null) {
   const base = scalp(u, v);
 
   // Screen-space direction of increasing u, via finite difference of the surface.
@@ -128,6 +168,16 @@ function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color
   direction = addPoints(direction, scalePoint(perpDir, perpWeight));
   direction = addPoints(direction, scalePoint(radialDir, radialWeight));
   direction = addPoints(direction, { x: 0, y: params.hairV2Gravity });
+
+  if (headband?.active) {
+    const bandWeight = headbandMembership(v, headband.vLow, headband.vHigh) * params.hairV2HeadbandStrength;
+
+    if (bandWeight > 0) {
+      const vStep = scalp(u, Math.max(0, v - 0.02));
+      const crownDir = normalizePoint(subtractPoints(vStep, base));
+      direction = addPoints(scalePoint(direction, 1 - bandWeight), scalePoint(crownDir, bandWeight));
+    }
+  }
 
   if (Math.hypot(direction.x, direction.y) < 0.001) {
     direction = { x: 0, y: 1 };
@@ -303,4 +353,69 @@ function makePartGuide(scalp, partU, partHalf) {
   points.frontFacing = scalp(partU, PART_MID_V).depthPosition > 0;
 
   return points;
+}
+
+// Filled belt between two latitudes, sampled across the full longitude range
+// and split into contiguous front/back runs using the same depth threshold
+// locks already use. A yawed head crosses the threshold at most twice across
+// a full sweep, so this is at most one front run + one back run.
+function makeHeadbandBelt(scalp, vLow, vHigh, color) {
+  const segments = 48;
+  const lowPoints = [];
+  const highPoints = [];
+
+  for (let i = 0; i <= segments; i += 1) {
+    const u = lerp(-U_RANGE, U_RANGE, i / segments);
+    lowPoints.push(scalp(u, vLow));
+    highPoints.push(scalp(u, vHigh));
+  }
+
+  return splitBeltRuns(lowPoints, highPoints).map(run => ({
+    points: [...run.low, ...[...run.high].reverse()],
+    layer: run.layer,
+    fill: color.fill,
+    stroke: color.stroke
+  }));
+}
+
+function splitBeltRuns(lowPoints, highPoints) {
+  const runs = [];
+  let currentLow = [];
+  let currentHigh = [];
+  let currentLayer = null;
+
+  for (let i = 0; i < lowPoints.length; i += 1) {
+    const layer = lowPoints[i].depthPosition < FRONT_BACK_DEPTH_THRESHOLD ? "back" : "front";
+
+    if (currentLayer !== null && layer !== currentLayer) {
+      runs.push({ low: currentLow, high: currentHigh, layer: currentLayer });
+      currentLow = [];
+      currentHigh = [];
+    }
+
+    currentLayer = layer;
+    currentLow.push(lowPoints[i]);
+    currentHigh.push(highPoints[i]);
+  }
+
+  if (currentLow.length) {
+    runs.push({ low: currentLow, high: currentHigh, layer: currentLayer });
+  }
+
+  // u sweeps a full circle (-U_RANGE wraps to +U_RANGE at the same physical
+  // point), so the first and last run are often the same contiguous piece
+  // split only by where the linear sweep happens to start/end. Merge them
+  // back into one run when they share a layer.
+  if (runs.length > 1 && runs[0].layer === runs[runs.length - 1].layer) {
+    const first = runs.shift();
+    const last = runs.pop();
+
+    runs.push({
+      low: [...last.low, ...first.low],
+      high: [...last.high, ...first.high],
+      layer: last.layer
+    });
+  }
+
+  return runs;
 }

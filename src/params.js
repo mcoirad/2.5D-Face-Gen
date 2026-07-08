@@ -12,6 +12,15 @@ export const defaultParams = {
   outlineInnerGap: 1,
   showGuides: true,
   removeStrokes: false,
+  showBody: true,
+  bodyColor: "#f6f1e8",
+  neckTopWidth: 60,
+  neckBottomWidth: 92,
+  neckLength: 48,
+  neckOverlap: 10,
+  torsoWidth: 200,
+  shoulderRadius: 46,
+  shoulderGap: 0,
   showHelmet: true,
   showHelmetShell: true,
   showHelmetFacePlate: true,
@@ -69,6 +78,11 @@ export const defaultParams = {
   hairV2CurlInterval: 200,
   hairV2CurlAngle: 0,
   hairV2CurlPeriod: 0,
+  showHairV2Headband: false,
+  hairV2HeadbandColor: "#c2456b",
+  hairV2HeadbandPosition: 0.55,
+  hairV2HeadbandWidth: 0.12,
+  hairV2HeadbandStrength: 1,
   eyeSpacing: 46,
   eyeY: -35,
   eyeSize: 18,
@@ -123,6 +137,13 @@ export const sliderConfig = {
   outlineArcGap: [0.9, 1.3, 0.01],
   outlineOuterGap: [0.25, 1.8, 0.01],
   outlineInnerGap: [0.25, 1.8, 0.01],
+  neckTopWidth: [20, 140, 1],
+  neckBottomWidth: [30, 180, 1],
+  neckLength: [10, 120, 1],
+  neckOverlap: [0, 40, 1],
+  torsoWidth: [100, 320, 1],
+  shoulderRadius: [15, 90, 1],
+  shoulderGap: [-20, 100, 1],
   eyeSpacing: [25, 70, 1],
   eyeY: [-75, 20, 1],
   eyeSize: [8, 30, 1],
@@ -195,7 +216,10 @@ export const sliderConfig = {
   hairV2Gravity: [0, 1, 0.01],
   hairV2CurlInterval: [5, 200, 1],
   hairV2CurlAngle: [0, 60, 1],
-  hairV2CurlPeriod: [0, 12, 1]
+  hairV2CurlPeriod: [0, 12, 1],
+  hairV2HeadbandPosition: [0, 1, 0.01],
+  hairV2HeadbandWidth: [0, 0.6, 0.01],
+  hairV2HeadbandStrength: [0, 1, 0.01]
 };
 
 export const selectConfig = {
@@ -220,13 +244,16 @@ export const selectConfig = {
 export const colorConfig = {
   hairColor: true,
   hairV2Color: true,
+  hairV2HeadbandColor: true,
   eyeIrisColor: true,
-  mouthCavityColor: true
+  mouthCavityColor: true,
+  bodyColor: true
 };
 
 export const toggleConfig = {
   showGuides: true,
   removeStrokes: true,
+  showBody: true,
   showHelmet: true,
   showHelmetShell: true,
   showHelmetFacePlate: true,
@@ -239,6 +266,7 @@ export const toggleConfig = {
   showHairV2: true,
   showHairV2PartGuide: true,
   hairV2Mirror: true,
+  showHairV2Headband: true,
   eyeIrisGradient: true,
   eyeShine: true,
   showUpperLashes: true,

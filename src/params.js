@@ -12,7 +12,7 @@ export const defaultParams = {
   outlineInnerGap: 1,
   faceRoundness: 0,
   showProfileOutlineExtension: true,
-  outlineIgnoreMouthProtrusion: false,
+  outlineIgnoreMouthProtrusion: true,
   showGuides: true,
   removeStrokes: false,
   showBody: true,
@@ -127,7 +127,8 @@ export const defaultParams = {
   upperLipCurve: 0.3,
   lowerLipCurve: 0.3,
   teethGap: 0.4,
-  mouthCavityColor: "#4a1f1f"
+  mouthCavityColor: "#4a1f1f",
+  clipMouthToFace: true
 };
 
 export const sliderConfig = {
@@ -263,6 +264,7 @@ export const toggleConfig = {
   removeStrokes: true,
   showProfileOutlineExtension: true,
   outlineIgnoreMouthProtrusion: true,
+  clipMouthToFace: true,
   showBody: true,
   showHelmet: true,
   showHelmetShell: true,

@@ -1,6 +1,8 @@
 import { addPoints, OUTLINE_UPPER_ARC_POINT_COUNT, scalePoint, subtractPoints } from "./rig.js";
 
 export function renderFaceSvg(rig) {
+  const headPathD = getHeadOutlinePathD(rig.head, rig.faceRoundness);
+
   return `
     <svg viewBox="0 0 500 500" role="img" aria-label="2.5D anime face preview">
       ${rig.removeStrokes ? renderRemoveStrokesStyle() : ""}
@@ -8,10 +10,10 @@ export function renderFaceSvg(rig) {
       ${renderHelmetLayers(rig.helmet?.back)}
       ${renderHair(rig.hair, "back")}
       ${renderHairV2(rig.hairV2, "back")}
-      ${renderHead(rig.head, rig.faceRoundness)}
+      ${renderHead(headPathD)}
       ${rig.showGuides ? renderGuides(rig.head.guides) : ""}
       ${renderNose(rig.features.nose)}
-      ${renderMouth(rig.features.mouth)}
+      ${renderMouth(rig.features.mouth, headPathD, rig.clipMouthToFace)}
       ${renderHair(rig.hair, "front")}
       ${renderHairV2(rig.hairV2, "front")}
       ${renderHelmetLayers(rig.helmet?.front)}
@@ -103,14 +105,16 @@ function renderHelmetLayer(layer) {
   `;
 }
 
-function renderHead(head, jawBend) {
-  const path = jawBend > 0
+function getHeadOutlinePathD(head, jawBend) {
+  return jawBend > 0
     ? renderJawBendPath(head.outline, jawBend)
     : `${renderPointPath(head.outline)} Z`;
+}
 
+function renderHead(headPathD) {
   return `
     <path
-      d="${path}"
+      d="${headPathD}"
       fill="#f6f1e8"
       stroke="black"
       stroke-width="4"
@@ -556,16 +560,12 @@ function renderNose(nose) {
   `;
 }
 
-function renderMouth(mouth) {
+function renderMouth(mouth, headPathD, clipToFace) {
   const path = renderMouthPath(mouth.quad);
   const clipId = "mouth-clip";
+  const headClipId = "head-clip";
 
-  return `
-    <defs>
-      <clipPath id="${clipId}">
-        <path d="${path}" />
-      </clipPath>
-    </defs>
+  const body = `
     <path
       d="${path}"
       fill="${mouth.cavityColor}"
@@ -577,6 +577,19 @@ function renderMouth(mouth) {
       ${mouth.upperTeeth.visible ? renderTeethRect(mouth.upperTeeth.corners) : ""}
       ${mouth.lowerTeeth.visible ? renderTeethRect(mouth.lowerTeeth.corners) : ""}
     </g>
+  `;
+
+  return `
+    <defs>
+      <clipPath id="${clipId}">
+        <path d="${path}" />
+      </clipPath>
+      ${clipToFace ? `
+      <clipPath id="${headClipId}">
+        <path d="${headPathD}" />
+      </clipPath>` : ""}
+    </defs>
+    ${clipToFace ? `<g clip-path="url(#${headClipId})">${body}</g>` : body}
   `;
 }
 

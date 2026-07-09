@@ -126,7 +126,8 @@ const controlGroups = [
       "teethGap",
       "showUpperTeeth",
       "showLowerTeeth",
-      "mouthCavityColor"
+      "mouthCavityColor",
+      "clipMouthToFace"
     ],
     open: false
   },

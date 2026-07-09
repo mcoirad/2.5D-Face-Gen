@@ -140,6 +140,7 @@ export function solveFaceRig(params) {
     removeStrokes: params.removeStrokes,
     showHelmet: params.showHelmet,
     faceRoundness: params.faceRoundness,
+    clipMouthToFace: params.clipMouthToFace,
     pose: {
       ...pose,
       turn,

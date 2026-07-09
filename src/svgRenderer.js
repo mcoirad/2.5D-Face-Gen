@@ -230,6 +230,10 @@ function renderHairV2(hairV2, layer) {
     return "";
   }
 
+  const scalpBase = (hairV2.scalpBase ?? [])
+    .filter(item => matchesHairLayer(item, layer))
+    .map(renderHeadbandBelt)
+    .join("");
   const locks = hairV2.locks
     .filter(item => matchesHairLayer(item, layer))
     .map(renderHairLock)
@@ -243,6 +247,7 @@ function renderHairV2(hairV2, layer) {
     : "";
 
   return `
+    ${scalpBase}
     ${locks}
     ${headband}
     ${partGuide}

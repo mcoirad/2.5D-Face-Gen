@@ -207,7 +207,9 @@ const controlGroups = [
       "hairV2HeadbandColor",
       "hairV2HeadbandPosition",
       "hairV2HeadbandWidth",
-      "hairV2HeadbandStrength"
+      "hairV2HeadbandStrength",
+      "showHairV2ScalpBase",
+      "hairV2ScalpBaseCoverage"
     ],
     open: true
   },

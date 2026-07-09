@@ -15,7 +15,7 @@ import {
 // Latitude (theta) where the scalp ends, head-fixed. Crown is at -PI/2. The
 // hairline sits higher in front and lower toward the back, giving a bowl that
 // covers the forehead down to roughly the nape.
-const FRONT_HAIRLINE_THETA = -0.20 * Math.PI;
+const FRONT_HAIRLINE_THETA = -0.10 * Math.PI;
 const BACK_HAIRLINE_THETA = 0.16 * Math.PI;
 // Longitude half-range in units of (PI/2): 2 == full 180deg to the back.
 const U_RANGE = 2;
@@ -35,6 +35,10 @@ const FRONT_BACK_DEPTH_THRESHOLD = Math.cos((90 + FRONT_BACK_MARGIN_DEGREES) * M
 // v-units of smoothstep margin the headband's pull fades in/out over, on each
 // side of [vLow, vHigh], so the edge isn't a hard direction snap.
 const HEADBAND_EDGE_SOFTNESS = 0.06;
+// Number of thin belts the scalp base cap is stacked from between the crown
+// and its coverage radius, so its side edges hug the scalp curve instead of
+// one long chord from the crown straight to the rim.
+const SCALP_BASE_RING_COUNT = 6;
 
 export function solveHairV2(params, pose, structure) {
   const projectStructure = createStructureProjector(params);
@@ -92,11 +96,30 @@ export function solveHairV2(params, pose, structure) {
     ? makeHeadbandBelt(scalp, headbandVLow, headbandVHigh, headbandColor)
     : null;
 
+  // Solid coverage from the crown out to hairV2ScalpBaseCoverage, same color
+  // as the locks, sitting underneath them - fills the gaps a jittered lock
+  // grid otherwise leaves near the crown instead of showing bald scalp.
+  // Stacked as several thin rings (each its own makeHeadbandBelt call)
+  // rather than one big belt from v=0: a single belt's "low" row collapses
+  // to the crown point, so its one straight edge jumps directly from the
+  // crown to the far side of the visible boundary, cutting across the dome
+  // instead of following it. Thin rings keep each jump short enough that
+  // the stack reads as a curve hugging the actual scalp surface.
+  const scalpBase = Boolean(params.showHairV2ScalpBase)
+    ? Array.from({ length: SCALP_BASE_RING_COUNT }, (_, ring) => {
+        const vLow = lerp(0, params.hairV2ScalpBaseCoverage, ring / SCALP_BASE_RING_COUNT);
+        const vHigh = lerp(0, params.hairV2ScalpBaseCoverage, (ring + 1) / SCALP_BASE_RING_COUNT);
+
+        return makeHeadbandBelt(scalp, vLow, vHigh, color);
+      }).flat()
+    : [];
+
   return {
     locks,
     partGuide: makePartGuide(scalp, partU, partHalf),
     showPartGuide: Boolean(params.showHairV2PartGuide),
-    headbandBelt
+    headbandBelt,
+    scalpBase
   };
 }
 

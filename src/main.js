@@ -1,5 +1,5 @@
 import { colorConfig, defaultParams, selectConfig, sliderConfig, toggleConfig } from "./params.js";
-import { defaultOutlineLandmarks, solveFaceRig } from "./rig.js";
+import { defaultFeatureLandmarks, defaultOutlineLandmarks, solveFaceRig } from "./rig.js";
 import { renderFaceSvg } from "./svgRenderer.js";
 import {
   createFaceArchive,
@@ -14,7 +14,8 @@ import {
 
 const params = {
   ...defaultParams,
-  outlineLandmarks: structuredClone(defaultOutlineLandmarks)
+  outlineLandmarks: structuredClone(defaultOutlineLandmarks),
+  featureLandmarks: structuredClone(defaultFeatureLandmarks)
 };
 const faceIo = document.getElementById("face-io");
 const controls = document.getElementById("controls");
@@ -25,7 +26,13 @@ const landmarkLabels = {
   threeQuarter: "3/4",
   side: "Side",
   startTemple: "Arc start",
-  endTemple: "Arc end"
+  endTemple: "Arc end",
+  bridge: "Bridge",
+  tip: "Tip",
+  base: "Base",
+  left: "Left",
+  mid: "Mid",
+  right: "Right"
 };
 const controlGroups = [
   {
@@ -430,7 +437,7 @@ function createLandmarkEditor() {
 
   editor.innerHTML = `
     <summary>
-      <span>Outline landmarks</span>
+      <span>Landmarks</span>
       <button type="button" class="landmark-reset">Reset landmarks</button>
     </summary>
     <div class="landmark-editor-content"></div>
@@ -439,7 +446,7 @@ function createLandmarkEditor() {
   editor.querySelector(".landmark-reset").addEventListener("click", event => {
     event.preventDefault();
     event.stopPropagation();
-    resetOutlineLandmarks();
+    resetLandmarks();
   });
 
   const content = editor.querySelector(".landmark-editor-content");
@@ -460,11 +467,19 @@ function createPoseEditor(poseKey) {
   const fields = document.createElement("div");
   fields.className = "landmark-grid";
 
-  fields.appendChild(createPointEditor(poseKey, "startTemple", landmarkLabels.startTemple));
-  fields.appendChild(createPointEditor(poseKey, "endTemple", landmarkLabels.endTemple));
+  fields.appendChild(createPointEditor("outline", poseKey, "startTemple", landmarkLabels.startTemple));
+  fields.appendChild(createPointEditor("outline", poseKey, "endTemple", landmarkLabels.endTemple));
 
   params.outlineLandmarks[poseKey].lower.forEach((_, index) => {
-    fields.appendChild(createPointEditor(poseKey, "lower", `Lower ${index + 1}`, index));
+    fields.appendChild(createPointEditor("outline", poseKey, "lower", `Lower ${index + 1}`, index));
+  });
+
+  ["bridge", "tip", "base"].forEach(pointKey => {
+    fields.appendChild(createPointEditor("feature", poseKey, pointKey, landmarkLabels[pointKey], null, "nose"));
+  });
+
+  ["left", "mid", "right"].forEach(pointKey => {
+    fields.appendChild(createPointEditor("feature", poseKey, pointKey, landmarkLabels[pointKey], null, "mouth"));
   });
 
   poseEditor.appendChild(fields);
@@ -472,7 +487,7 @@ function createPoseEditor(poseKey) {
   return poseEditor;
 }
 
-function createPointEditor(poseKey, pointKey, label, index = null) {
+function createPointEditor(groupKey, poseKey, pointKey, label, index = null, family = null) {
   const row = document.createElement("div");
   const fields = pointKey === "lower"
     ? [
@@ -497,7 +512,7 @@ function createPointEditor(poseKey, pointKey, label, index = null) {
           min="${min}"
           max="${max}"
           data-field="${field}"
-          value="${getLandmarkValue(poseKey, pointKey, index, field)}"
+          value="${getLandmarkValue(groupKey, poseKey, pointKey, index, field, family)}"
         >
       </label>
     `).join("")}
@@ -508,11 +523,13 @@ function createPointEditor(poseKey, pointKey, label, index = null) {
   inputs.forEach(input => {
     input.addEventListener("input", event => {
       setLandmarkValue(
+        groupKey,
         poseKey,
         pointKey,
         index,
         event.target.dataset.field,
-        Number(event.target.value)
+        Number(event.target.value),
+        family
       );
 
       render();
@@ -522,22 +539,24 @@ function createPointEditor(poseKey, pointKey, label, index = null) {
   return row;
 }
 
-function getLandmarkPoint(poseKey, pointKey, index) {
-  if (pointKey === "lower") {
-    return params.outlineLandmarks[poseKey].lower[index];
+function getLandmarkPoint(groupKey, poseKey, pointKey, index, family) {
+  if (groupKey === "outline") {
+    return pointKey === "lower"
+      ? params.outlineLandmarks[poseKey].lower[index]
+      : params.outlineLandmarks[poseKey][pointKey];
   }
 
-  return params.outlineLandmarks[poseKey][pointKey];
+  return params.featureLandmarks[poseKey][family][pointKey];
 }
 
-function getLandmarkValue(poseKey, pointKey, index, field) {
-  const point = getLandmarkPoint(poseKey, pointKey, index);
+function getLandmarkValue(groupKey, poseKey, pointKey, index, field, family) {
+  const point = getLandmarkPoint(groupKey, poseKey, pointKey, index, family);
 
-  return pointKey === "lower" ? point[field] : point[field];
+  return point[field];
 }
 
-function setLandmarkValue(poseKey, pointKey, index, field, value) {
-  const point = getLandmarkPoint(poseKey, pointKey, index);
+function setLandmarkValue(groupKey, poseKey, pointKey, index, field, value, family) {
+  const point = getLandmarkPoint(groupKey, poseKey, pointKey, index, family);
 
   if (pointKey === "lower") {
     point[field] = value;
@@ -547,8 +566,9 @@ function setLandmarkValue(poseKey, pointKey, index, field, value) {
   point[Number(field)] = value;
 }
 
-function resetOutlineLandmarks() {
+function resetLandmarks() {
   params.outlineLandmarks = structuredClone(defaultOutlineLandmarks);
+  params.featureLandmarks = structuredClone(defaultFeatureLandmarks);
   rebuildLandmarkControls();
   render();
 }
@@ -564,7 +584,10 @@ function applyParams(snapshot) {
     ...snapshot,
     outlineLandmarks: snapshot.outlineLandmarks
       ? structuredClone(snapshot.outlineLandmarks)
-      : structuredClone(defaultOutlineLandmarks)
+      : structuredClone(defaultOutlineLandmarks),
+    featureLandmarks: snapshot.featureLandmarks
+      ? structuredClone(snapshot.featureLandmarks)
+      : structuredClone(defaultFeatureLandmarks)
   };
 
   Object.assign(params, restored);

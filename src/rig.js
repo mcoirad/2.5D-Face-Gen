@@ -20,7 +20,7 @@ const DEFAULTS = {
   noseLength: 48,
   mouthWidth: 70
 };
-const REFERENCE_POSES = {
+export const defaultFeatureLandmarks = {
   front: {
     lowerFace: { cx: 0.0269, cy: 0.8788, rx: 0.8411, ry: 0.555 },
     eyes: [
@@ -156,7 +156,7 @@ export function solveFaceRig(params) {
 
 function solveHead(params, pose) {
   const projectStructure = createStructureProjector(params);
-  const reference = interpolateReferencePose(pose.amount);
+  const reference = interpolateReferencePose(params.featureLandmarks ?? defaultFeatureLandmarks, pose.amount);
   const skull = {
     cx: 0,
     cy: FACE_CENTER_Y,
@@ -1490,12 +1490,12 @@ function referenceToModelPoint(skull, poseSignValue, referencePoint, yOffset = 0
   };
 }
 
-function interpolateReferencePose(amount) {
+function interpolateReferencePose(featureLandmarks, amount) {
   if (amount <= 0.5) {
-    return blendReferencePose(REFERENCE_POSES.front, REFERENCE_POSES.threeQuarter, amount / 0.5);
+    return blendReferencePose(featureLandmarks.front, featureLandmarks.threeQuarter, amount / 0.5);
   }
 
-  return blendReferencePose(REFERENCE_POSES.threeQuarter, REFERENCE_POSES.side, (amount - 0.5) / 0.5);
+  return blendReferencePose(featureLandmarks.threeQuarter, featureLandmarks.side, (amount - 0.5) / 0.5);
 }
 
 function interpolateOutlineLandmarks(outlineLandmarks, amount) {

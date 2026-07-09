@@ -10,6 +10,8 @@ export const defaultParams = {
   outlineArcGap: 1,
   outlineOuterGap: 1,
   outlineInnerGap: 1,
+  showProfileOutlineExtension: true,
+  outlineIgnoreMouthProtrusion: false,
   showGuides: true,
   removeStrokes: false,
   showBody: true,
@@ -257,6 +259,8 @@ export const colorConfig = {
 export const toggleConfig = {
   showGuides: true,
   removeStrokes: true,
+  showProfileOutlineExtension: true,
+  outlineIgnoreMouthProtrusion: true,
   showBody: true,
   showHelmet: true,
   showHelmetShell: true,

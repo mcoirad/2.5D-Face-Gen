@@ -131,7 +131,9 @@ export function solveFaceRig(params) {
   const head = solveHead(params, pose);
   const features = solveFeatures(params, pose, head.structure);
 
-  head.outline = extendOutlineWithProfile(head.outline, features);
+  head.outline = params.showProfileOutlineExtension
+    ? extendOutlineWithProfile(head.outline, features, params.outlineIgnoreMouthProtrusion)
+    : head.outline;
 
   return {
     showGuides: params.showGuides,
@@ -352,9 +354,9 @@ function polygonSignedArea(points) {
 // lower1..lower5; the front run of the closed loop is lower4 -> lower5 ->
 // arcStart. We drop lower5 only when at least one profile point can safely
 // replace it.
-function extendOutlineWithProfile(outline, features) {
+function extendOutlineWithProfile(outline, features, ignoreMouthProtrusion) {
   const mouth = outlinePoint(features.mouth.mid);
-  const mouthProtrudes = !pointInPolygon(mouth, outline);
+  const mouthProtrudes = !ignoreMouthProtrusion && !pointInPolygon(mouth, outline);
   const outlineForExtension = outline;
   const candidates = [
     ...(mouthProtrudes ? [mouth] : []),

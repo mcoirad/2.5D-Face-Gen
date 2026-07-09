@@ -1,3 +1,5 @@
+import { addPoints, OUTLINE_UPPER_ARC_POINT_COUNT, scalePoint, subtractPoints } from "./rig.js";
+
 export function renderFaceSvg(rig) {
   return `
     <svg viewBox="0 0 500 500" role="img" aria-label="2.5D anime face preview">
@@ -6,7 +8,7 @@ export function renderFaceSvg(rig) {
       ${renderHelmetLayers(rig.helmet?.back)}
       ${renderHair(rig.hair, "back")}
       ${renderHairV2(rig.hairV2, "back")}
-      ${renderHead(rig.head)}
+      ${renderHead(rig.head, rig.faceRoundness)}
       ${rig.showGuides ? renderGuides(rig.head.guides) : ""}
       ${renderNose(rig.features.nose)}
       ${renderMouth(rig.features.mouth)}
@@ -101,16 +103,73 @@ function renderHelmetLayer(layer) {
   `;
 }
 
-function renderHead(head) {
+function renderHead(head, jawBend) {
+  const path = jawBend > 0
+    ? renderJawBendPath(head.outline, jawBend)
+    : `${renderPointPath(head.outline)} Z`;
+
   return `
     <path
-      d="${renderPointPath(head.outline)} Z"
+      d="${path}"
       fill="#f6f1e8"
       stroke="black"
       stroke-width="4"
       stroke-linejoin="round"
     />
   `;
+}
+
+// Bulges just the two segments on each side where the skull arc meets the
+// jaw (arc-end -> jaw1, jaw1 -> jaw2, and the mirrored pair at the other
+// end of the point list) outward by jawBend px, via a quadratic control
+// point pushed away from the outline's centroid. Every other segment stays
+// a straight line - deliberately not a whole-outline smoothing pass, since
+// that produced artifacts elsewhere on the outline.
+function renderJawBendPath(points, jawBend) {
+  const n = points.length;
+  const arcEndIndex = OUTLINE_UPPER_ARC_POINT_COUNT - 1;
+  const jaw1Index = OUTLINE_UPPER_ARC_POINT_COUNT;
+  const jaw2Index = OUTLINE_UPPER_ARC_POINT_COUNT + 1;
+  const jawLastIndex = n - 1;
+  const jawSecondLastIndex = n - 2;
+  const bentEdges = new Set([
+    `${arcEndIndex}-${jaw1Index}`,
+    `${jaw1Index}-${jaw2Index}`,
+    `${jawSecondLastIndex}-${jawLastIndex}`,
+    `${jawLastIndex}-0`
+  ]);
+  const centroid = scalePoint(
+    points.reduce((sum, point) => addPoints(sum, point), { x: 0, y: 0 }),
+    1 / n
+  );
+
+  let d = `M ${points[0].x} ${points[0].y}`;
+
+  for (let i = 0; i < n; i += 1) {
+    const from = points[i];
+    const to = points[(i + 1) % n];
+
+    if (!bentEdges.has(`${i}-${(i + 1) % n}`)) {
+      d += ` L ${to.x} ${to.y}`;
+      continue;
+    }
+
+    const mid = scalePoint(addPoints(from, to), 0.5);
+    const edge = subtractPoints(to, from);
+    const edgeLength = Math.hypot(edge.x, edge.y) || 1;
+    let perpendicular = { x: -edge.y / edgeLength, y: edge.x / edgeLength };
+    const towardMid = subtractPoints(mid, centroid);
+
+    if (perpendicular.x * towardMid.x + perpendicular.y * towardMid.y < 0) {
+      perpendicular = scalePoint(perpendicular, -1);
+    }
+
+    const control = addPoints(mid, scalePoint(perpendicular, jawBend));
+
+    d += ` Q ${control.x} ${control.y} ${to.x} ${to.y}`;
+  }
+
+  return d;
 }
 
 function renderGuides(guides) {

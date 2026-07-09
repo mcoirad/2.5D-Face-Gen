@@ -54,7 +54,7 @@ const controlGroups = [
   },
   {
     title: "Outline",
-    keys: ["outlineArcGap", "outlineOuterGap", "outlineInnerGap", "showProfileOutlineExtension", "outlineIgnoreMouthProtrusion"],
+    keys: ["outlineArcGap", "outlineOuterGap", "outlineInnerGap", "faceRoundness", "showProfileOutlineExtension", "outlineIgnoreMouthProtrusion"],
     open: false
   },
   {

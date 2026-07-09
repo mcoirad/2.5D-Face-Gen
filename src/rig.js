@@ -112,7 +112,7 @@ export const defaultOutlineLandmarks = {
 
 const HAIR_MIRROR_GUIDES = [4, 3, 2, 1, 0, 7, 6, 5];
 const HAIR_MIRROR_SOURCE_GUIDES = [0, 1, 2, 5, 6];
-const OUTLINE_UPPER_ARC_POINT_COUNT = 19;
+export const OUTLINE_UPPER_ARC_POINT_COUNT = 19;
 // Profile outline tuning: when the first protruding feature would pull the
 // preceding lower-face point into a strong inward notch, drop that lower point
 // and retry. This keeps nose landmarks available while removing bad connectors.
@@ -139,6 +139,7 @@ export function solveFaceRig(params) {
     showGuides: params.showGuides,
     removeStrokes: params.removeStrokes,
     showHelmet: params.showHelmet,
+    faceRoundness: params.faceRoundness,
     pose: {
       ...pose,
       turn,

@@ -15,7 +15,7 @@ import {
 // Latitude (theta) where the scalp ends, head-fixed. Crown is at -PI/2. The
 // hairline sits higher in front and lower toward the back, giving a bowl that
 // covers the forehead down to roughly the nape.
-const FRONT_HAIRLINE_THETA = -0.30 * Math.PI;
+const FRONT_HAIRLINE_THETA = -0.20 * Math.PI;
 const BACK_HAIRLINE_THETA = 0.16 * Math.PI;
 // Longitude half-range in units of (PI/2): 2 == full 180deg to the back.
 const U_RANGE = 2;

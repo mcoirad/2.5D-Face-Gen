@@ -95,6 +95,7 @@ export const defaultParams = {
   showHairV2Shine: true,
   hairV2ShineWidth: 0.4,
   hairV2ShineLength: 0.5,
+  hairV2LightX: 0,
   eyeSpacing: 46,
   eyeY: -35,
   eyeSize: 18,
@@ -239,7 +240,8 @@ export const sliderConfig = {
   hairV2HeadbandStrength: [0, 1, 0.01],
   hairV2ScalpBaseCoverage: [0, 2, 0.01],
   hairV2ShineWidth: [0, 1, 0.01],
-  hairV2ShineLength: [0, 1, 0.01]
+  hairV2ShineLength: [0, 1, 0.01],
+  hairV2LightX: [-1, 1, 0.01]
 };
 
 export const selectConfig = {

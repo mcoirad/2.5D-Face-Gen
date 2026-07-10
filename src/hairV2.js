@@ -51,6 +51,21 @@ const CURL_DELAY_RAMP_SEGMENTS = 1;
 // Opacity of shine highlight shapes - translucent so it reads as a glossy
 // highlight rather than a flat opaque streak painted over the lock.
 const HAIR_SHINE_OPACITY = 1;
+// Floor illumination never drops below on the shadow side of hairV2LightX -
+// a true 0 would make shadow-side shines vanish entirely, which reads as a
+// bug rather than lighting; every other intensity param in this file blends
+// rather than fully replaces.
+const HAIR_SHINE_SHADOW_FLOOR = 0.35;
+// Multiplier turning a -1..1 light-alignment dot product into a left/right
+// width bias, clamped downstream so it can't fully collapse either edge.
+const HAIR_SHINE_ASYMMETRY_STRENGTH = 1.5;
+// Upper bound on the bias itself, independent of width, so a strong
+// asymmetryStrength can't fully collapse either edge.
+const HAIR_SHINE_ASYMMETRY_MAX_BIAS = 0.9;
+// A biased shine edge never sits past this fraction of the parent lock's own
+// edge at the same point - a little short of 1 so the shine visibly stays
+// inside the lock instead of just touching its boundary.
+const HAIR_SHINE_MAX_WIDTH_FRACTION = 0.92;
 
 export function solveHairV2(params, pose, structure) {
   const projectStructure = createStructureProjector(params);
@@ -180,7 +195,8 @@ function scalpPoint(u, v, projectStructure, skull, pose) {
   return {
     x: projected.x,
     y: projected.y,
-    depthPosition
+    depthPosition,
+    sidePosition
   };
 }
 
@@ -250,8 +266,25 @@ function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color
   const curve = length * 0.12 * (seededRandom(index, 5) < 0.5 ? -1 : 1) * curveMirror;
   const curlAngle = params.hairV2CurlAngle * Math.PI / 180 * curveMirror;
 
+  // Illumination: how lit this lock's side of the head is, given where the
+  // light sits (hairV2LightX) and this lock's own yaw-aware left/right
+  // position (sidePosition). Provably 1 (no-op) whenever hairV2LightX is 0,
+  // since alignment is then 0 regardless of sidePosition.
+  const alignment = base.sidePosition * params.hairV2LightX;
+  const shadowTarget = alignment >= 0 ? 1 : HAIR_SHINE_SHADOW_FLOOR;
+  const illumination = lerp(1, shadowTarget, Math.abs(alignment));
+
   const shine = params.showHairV2Shine
-    ? { width: params.hairV2ShineWidth, length: params.hairV2ShineLength, color: shineColor }
+    ? {
+        // Capped short of the full lock width so the shine reads as an
+        // inset highlight even before any light-driven bias is applied -
+        // otherwise a symmetric, unbiased shine could already sit flush
+        // with the lock's own edge at hairV2ShineWidth's top of range.
+        width: Math.min(params.hairV2ShineWidth * illumination, HAIR_SHINE_MAX_WIDTH_FRACTION),
+        length: params.hairV2ShineLength * illumination,
+        color: shineColor,
+        lightX: params.hairV2LightX
+      }
     : null;
 
   return buildLockGeometry(
@@ -272,6 +305,19 @@ function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color
   );
 }
 
+// Caps how far a shine's width bias can push toward one edge, so a wide
+// and/or strongly-biased shine can't cross the parent lock's own edge on
+// that side. The taper factor cancels out of the crossing condition (both
+// the shine and the lock taper by the same (1 - k/last) at any given point),
+// so the safe bound is just a fraction of the lock's width regardless of
+// position along the lock: shineWidthFraction * (1 + bias) <=
+// HAIR_SHINE_MAX_WIDTH_FRACTION. Falls back to the strength-based cap alone
+// when the shine has no width yet.
+function maxShineBias(shineWidthFraction) {
+  if (shineWidthFraction <= 0) return HAIR_SHINE_ASYMMETRY_MAX_BIAS;
+  return Math.max(0, Math.min(HAIR_SHINE_ASYMMETRY_MAX_BIAS, HAIR_SHINE_MAX_WIDTH_FRACTION / shineWidthFraction - 1));
+}
+
 function buildLockGeometry(base, direction, width, length, curve, color, depthPosition, rootRound, interval, curlAngle, curlPeriod, curlDelay, index, shine) {
   const segmentCount = Math.max(1, Math.round(length / interval));
   const tangent = { x: -direction.y, y: direction.x };
@@ -283,13 +329,21 @@ function buildLockGeometry(base, direction, width, length, curve, color, depthPo
     geometry = buildStraightLockGeometry(base, direction, tangent, width, length, curve);
 
     if (shine) {
+      // perp . lightDir simplifies to tangent.x * lightX since light is
+      // purely horizontal (y=0) - same alignment formula the ribbon path
+      // uses, just evaluated once instead of per-segment (a straight lock
+      // only has the one segment to bias).
+      const maxBias = maxShineBias(shine.width);
+      const bias = clamp(tangent.x * shine.lightX * HAIR_SHINE_ASYMMETRY_STRENGTH, -maxBias, maxBias);
+
       shineGeometry = buildStraightLockGeometry(
         base,
         direction,
         tangent,
         width * shine.width,
         length * shine.length,
-        curve * shine.length
+        curve * shine.length,
+        bias
       );
     }
   } else {
@@ -307,7 +361,13 @@ function buildLockGeometry(base, direction, width, length, curve, color, depthPo
       const shinePoints = points.slice(0, shineSegmentCount + 1);
       const shineHeadings = headings.slice(0, shineSegmentCount);
 
-      shineGeometry = buildRibbonLockGeometry(shinePoints, shineHeadings, width * shine.width);
+      const maxBias = maxShineBias(shine.width);
+      shineGeometry = buildRibbonLockGeometry(
+        shinePoints,
+        shineHeadings,
+        width * shine.width,
+        (pts, heads, w) => buildAsymmetricRibbonEdges(pts, heads, w, shine.lightX, HAIR_SHINE_ASYMMETRY_STRENGTH, maxBias)
+      );
     }
   }
 
@@ -340,10 +400,12 @@ function finishLockGeometry(geometry, base, direction, width, rootRound, depthPo
   };
 }
 
-// The original single-bend lock: root -> tip in one bezier per side.
-function buildStraightLockGeometry(base, direction, tangent, width, length, curve) {
-  const rootLeft = offsetPoint(base, tangent, -width / 2);
-  const rootRight = offsetPoint(base, tangent, width / 2);
+// The original single-bend lock: root -> tip in one bezier per side. bias
+// (-1..1, default 0/symmetric) redistributes the width split between the two
+// sides without changing the total, for the shine's light-facing-edge bias.
+function buildStraightLockGeometry(base, direction, tangent, width, length, curve, bias = 0) {
+  const rootLeft = offsetPoint(base, tangent, -(width / 2) * (1 - bias));
+  const rootRight = offsetPoint(base, tangent, (width / 2) * (1 + bias));
   const tip = offsetPoint(base, direction, length);
   const curveControls = makeHairCurveControls({
     rootLeft,
@@ -371,8 +433,8 @@ function buildStraightLockGeometry(base, direction, tangent, width, length, curv
 // already walked (see buildLockGeometry) instead of re-deriving its own from
 // a shorter length, which is what let it drift off the lock's actual curl
 // path at length fractions < 1.
-function buildRibbonLockGeometry(points, headings, width) {
-  const { leftEdge, rightEdge } = buildRibbonEdges(points, headings, width);
+function buildRibbonLockGeometry(points, headings, width, edgeBuilder = buildRibbonEdges) {
+  const { leftEdge, rightEdge } = edgeBuilder(points, headings, width);
   const leftSegments = buildSmoothPath(leftEdge);
   const rightSegments = buildSmoothPath([...rightEdge].reverse());
 
@@ -432,6 +494,37 @@ function buildRibbonEdges(points, headings, width) {
 
     leftEdge.push(offsetPoint(points[k], perp, -halfWidth));
     rightEdge.push(offsetPoint(points[k], perp, halfWidth));
+  }
+
+  return { leftEdge, rightEdge };
+}
+
+// Same as buildRibbonEdges, but biases each segment's width split toward
+// whichever edge faces a purely-horizontal light (lightX, -1..1) instead of
+// splitting evenly. Computed per-segment (not once per lock) so the "lit"
+// edge correctly tracks around a tightly curled/spiraled lock as its local
+// tangent rotates, rather than staying fixed to whichever edge was lit at
+// the root. Total width is preserved and only redistributed between edges,
+// so this stays orthogonal to the separate illumination/width scaling.
+function buildAsymmetricRibbonEdges(points, headings, width, lightX, asymmetryStrength, maxBias) {
+  const last = points.length - 1;
+  const leftEdge = [];
+  const rightEdge = [];
+
+  for (let k = 0; k <= last; k += 1) {
+    const tangent = k === 0
+      ? headings[0]
+      : k === last
+        ? headings[last - 1]
+        : normalizePoint(addPoints(headings[k - 1], headings[k]));
+    const perp = { x: -tangent.y, y: tangent.x };
+    const baseHalfWidth = (width / 2) * (1 - k / last);
+    // perp . lightDir simplifies to perp.x * lightX since the light is
+    // purely horizontal (lightDir = {x: lightX, y: 0}).
+    const bias = clamp(perp.x * lightX * asymmetryStrength, -maxBias, maxBias);
+
+    leftEdge.push(offsetPoint(points[k], perp, -baseHalfWidth * (1 - bias)));
+    rightEdge.push(offsetPoint(points[k], perp, baseHalfWidth * (1 + bias)));
   }
 
   return { leftEdge, rightEdge };

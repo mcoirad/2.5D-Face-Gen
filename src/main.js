@@ -214,7 +214,8 @@ const controlGroups = [
       "hairV2SharedOutline",
       "showHairV2Shine",
       "hairV2ShineWidth",
-      "hairV2ShineLength"
+      "hairV2ShineLength",
+      "hairV2LightX"
     ],
     open: true
   },

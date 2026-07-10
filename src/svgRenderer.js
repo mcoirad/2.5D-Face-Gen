@@ -230,45 +230,109 @@ function renderHairV2(hairV2, layer) {
     return "";
   }
 
-  const scalpBase = (hairV2.scalpBase ?? [])
+  const beltShape = strip => ({
+    d: `${renderPointPath(strip.points)} Z`,
+    fill: strip.fill,
+    stroke: strip.stroke,
+    strokeWidth: 2.5,
+    opacity: 1
+  });
+  const lockShape = lock => ({
+    d: renderHairLockPath(lock),
+    fill: lock.fill,
+    stroke: lock.stroke,
+    strokeWidth: 2,
+    opacity: lock.opacity
+  });
+
+  const shapes = [
+    ...(hairV2.scalpBase ?? []).filter(item => matchesHairLayer(item, layer)).map(beltShape),
+    ...hairV2.locks.filter(item => matchesHairLayer(item, layer)).map(lockShape),
+    ...(hairV2.headbandBelt ?? []).filter(item => matchesHairLayer(item, layer)).map(beltShape)
+  ];
+
+  const shapesMarkup = hairV2.sharedOutline
+    ? renderSharedOutlineShapes(shapes)
+    : shapes.map(renderHairShape).join("");
+
+  const detailLines = hairV2.locks
     .filter(item => matchesHairLayer(item, layer))
-    .map(renderHeadbandBelt)
+    .flatMap(lock => lock.detailLines ?? [])
+    .map(renderHairLockDetailLine)
     .join("");
-  const locks = hairV2.locks
+  const shines = (hairV2.shines ?? [])
     .filter(item => matchesHairLayer(item, layer))
-    .map(renderHairLock)
-    .join("");
-  const headband = (hairV2.headbandBelt ?? [])
-    .filter(item => matchesHairLayer(item, layer))
-    .map(renderHeadbandBelt)
+    .map(renderHairShine)
     .join("");
   const partGuide = layer === "front" && hairV2.showPartGuide
     ? renderHairV2PartGuide(hairV2.partGuide)
     : "";
 
   return `
-    ${scalpBase}
-    ${locks}
-    ${headband}
+    ${shapesMarkup}
+    ${detailLines}
+    ${shines}
     ${partGuide}
   `;
 }
 
-function renderHeadbandBelt(strip) {
-  if (!strip.points?.length) {
-    return "";
-  }
-
+// Borderless fill on top of everything else in this layer, so it reads as a
+// glossy highlight sitting on the hair's surface rather than another
+// outlined lock.
+function renderHairShine(shine) {
   return `
     <path
-      d="${renderPointPath(strip.points)} Z"
-      fill="${strip.fill}"
-      stroke="${strip.stroke}"
-      stroke-width="2.5"
-      stroke-linejoin="round"
-      opacity="0.95"
+      d="${renderHairLockPath(shine)}"
+      fill="${shine.fill}"
+      stroke="none"
+      opacity="${shine.opacity}"
     />
   `;
+}
+
+function renderHairShape(shape) {
+  return `
+    <path
+      d="${shape.d}"
+      fill="${shape.fill}"
+      stroke="${shape.stroke}"
+      stroke-width="${shape.strokeWidth}"
+      stroke-linejoin="round"
+      opacity="${shape.opacity}"
+    />
+  `;
+}
+
+// Every shape's stroke is drawn first, then every shape's fill on top - a
+// fill from any shape covers the strokes of shapes beneath it wherever they
+// overlap, so only the outer silhouette (where nothing else's fill covers
+// it) keeps a visible stroke, instead of every lock/belt piece outlining
+// itself and showing seams where they overlap.
+function renderSharedOutlineShapes(shapes) {
+  // Stroke is centered on the path, so once fills paint over the inner half,
+  // only strokeWidth/2 stays visible at the true outer silhouette. Doubling
+  // it here means that visible outer half ends up the same width as the
+  // original stroke looked before this shape ever had a fill drawn over it.
+  const strokes = shapes.map(shape => `
+    <path
+      d="${shape.d}"
+      fill="none"
+      stroke="${shape.stroke}"
+      stroke-width="${shape.strokeWidth * 2}"
+      stroke-linejoin="round"
+      opacity="${shape.opacity}"
+    />
+  `).join("");
+  const fills = shapes.map(shape => `
+    <path
+      d="${shape.d}"
+      fill="${shape.fill}"
+      stroke="none"
+      opacity="${shape.opacity}"
+    />
+  `).join("");
+
+  return strokes + fills;
 }
 
 function renderHairV2PartGuide(points) {
@@ -295,6 +359,9 @@ function matchesHairLayer(item, layer) {
     : item.layer !== "back";
 }
 
+// Used by v1 hair (src/rig.js's makeHairLock), which doesn't have the
+// shared-outline treatment - hairV2 builds its own shape descriptors and
+// renders through renderHairShape/renderSharedOutlineShapes instead.
 function renderHairLock(lock) {
   return `
     <path

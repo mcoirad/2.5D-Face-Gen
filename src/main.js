@@ -203,13 +203,18 @@ const controlGroups = [
       "hairV2CurlInterval",
       "hairV2CurlAngle",
       "hairV2CurlPeriod",
+      "hairV2CurlDelay",
       "showHairV2Headband",
       "hairV2HeadbandColor",
       "hairV2HeadbandPosition",
       "hairV2HeadbandWidth",
       "hairV2HeadbandStrength",
       "showHairV2ScalpBase",
-      "hairV2ScalpBaseCoverage"
+      "hairV2ScalpBaseCoverage",
+      "hairV2SharedOutline",
+      "showHairV2Shine",
+      "hairV2ShineWidth",
+      "hairV2ShineLength"
     ],
     open: true
   },

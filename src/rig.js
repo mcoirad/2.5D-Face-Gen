@@ -1077,6 +1077,14 @@ export function resolveHairColor(params, colorKey = "hairColor") {
   };
 }
 
+// A lightened variant of the same base color, for shine highlights - no
+// stroke pairing, since shine renders as a borderless fill.
+export function resolveHairShineColor(params, colorKey = "hairColor") {
+  const fill = isHexColor(params[colorKey]) ? params[colorKey] : "#2a241e";
+
+  return lightenHex(fill, 0.5);
+}
+
 function isHexColor(value) {
   return /^#[0-9a-f]{6}$/i.test(value);
 }
@@ -1089,6 +1097,15 @@ function darkenHex(value, amount) {
 
   return `#${[r, g, b]
     .map(channel => channel.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function lightenHex(value, amount) {
+  const numeric = Number.parseInt(value.slice(1), 16);
+  const channels = [(numeric >> 16) & 255, (numeric >> 8) & 255, numeric & 255];
+
+  return `#${channels
+    .map(channel => Math.round(channel + (255 - channel) * amount).toString(16).padStart(2, "0"))
     .join("")}`;
 }
 

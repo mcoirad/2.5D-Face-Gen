@@ -83,6 +83,7 @@ export const defaultParams = {
   hairV2CurlInterval: 200,
   hairV2CurlAngle: 0,
   hairV2CurlPeriod: 0,
+  hairV2CurlDelay: 0,
   showHairV2Headband: false,
   hairV2HeadbandColor: "#c2456b",
   hairV2HeadbandPosition: 0.55,
@@ -90,6 +91,10 @@ export const defaultParams = {
   hairV2HeadbandStrength: 1,
   showHairV2ScalpBase: true,
   hairV2ScalpBaseCoverage: 0.25,
+  hairV2SharedOutline: true,
+  showHairV2Shine: true,
+  hairV2ShineWidth: 0.4,
+  hairV2ShineLength: 0.5,
   eyeSpacing: 46,
   eyeY: -35,
   eyeSize: 18,
@@ -226,12 +231,15 @@ export const sliderConfig = {
   hairV2RadialBias: [0, 1, 0.01],
   hairV2Gravity: [0, 2, 0.01],
   hairV2CurlInterval: [5, 200, 1],
-  hairV2CurlAngle: [0, 60, 1],
+  hairV2CurlAngle: [-60, 60, 1],
   hairV2CurlPeriod: [0, 12, 1],
+  hairV2CurlDelay: [0, 1, 0.01],
   hairV2HeadbandPosition: [0, 1, 0.01],
   hairV2HeadbandWidth: [0, 0.6, 0.01],
   hairV2HeadbandStrength: [0, 1, 0.01],
-  hairV2ScalpBaseCoverage: [0, 2, 0.01]
+  hairV2ScalpBaseCoverage: [0, 2, 0.01],
+  hairV2ShineWidth: [0, 1, 0.01],
+  hairV2ShineLength: [0, 1, 0.01]
 };
 
 export const selectConfig = {
@@ -283,6 +291,8 @@ export const toggleConfig = {
   hairV2Mirror: true,
   showHairV2Headband: true,
   showHairV2ScalpBase: true,
+  hairV2SharedOutline: true,
+  showHairV2Shine: true,
   eyeIrisGradient: true,
   eyeShine: true,
   showUpperLashes: true,

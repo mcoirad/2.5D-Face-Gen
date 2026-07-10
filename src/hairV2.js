@@ -6,6 +6,7 @@ import {
   normalizePoint,
   offsetPoint,
   resolveHairColor,
+  resolveHairShineColor,
   rotatePoint,
   scalePoint,
   seededRandom,
@@ -39,6 +40,17 @@ const HEADBAND_EDGE_SOFTNESS = 0.06;
 // and its coverage radius, so its side edges hug the scalp curve instead of
 // one long chord from the crown straight to the rim.
 const SCALP_BASE_RING_COUNT = 6;
+// Fraction of a ring's own v-span it's extended past its outer edge, into
+// the next ring's territory, so consecutive rings overlap enough for the
+// shared-outline fill pass to cover the seam between them.
+const SCALP_BASE_RING_OVERLAP = 0.35;
+// Half-width, in segments, of the smoothstep ramp curl eases in over once
+// hairV2CurlDelay's onset point is reached, so it's a gentle ease rather
+// than a visible kink where curling switches on.
+const CURL_DELAY_RAMP_SEGMENTS = 1;
+// Opacity of shine highlight shapes - translucent so it reads as a glossy
+// highlight rather than a flat opaque streak painted over the lock.
+const HAIR_SHINE_OPACITY = 1;
 
 export function solveHairV2(params, pose, structure) {
   const projectStructure = createStructureProjector(params);
@@ -72,7 +84,9 @@ export function solveHairV2(params, pose, structure) {
 
   const count = Math.round(params.hairV2LockCount);
   const color = resolveHairColor(params, "hairV2Color");
+  const shineColor = resolveHairShineColor(params, "hairV2Color");
   const locks = [];
+  const shines = [];
   const mirror = Boolean(params.hairV2Mirror);
   const sourceCount = count;
 
@@ -84,10 +98,20 @@ export function solveHairV2(params, pose, structure) {
 
   for (let i = 0; i < sourceCount; i += 1) {
     const { u, v } = stratifiedUV(i, cols, rows, mirror);
-    locks.push(makeV2Lock(i, u, v, scalp, partU, partHalf, midpoint, params, color, 1, headband));
+    const result = makeV2Lock(i, u, v, scalp, partU, partHalf, midpoint, params, color, shineColor, 1, headband);
+
+    locks.push(result.lock);
+    if (result.shine) {
+      shines.push(result.shine);
+    }
 
     if (mirror) {
-      locks.push(makeV2Lock(i, -u, v, scalp, partU, partHalf, midpoint, params, color, -1, headband));
+      const mirroredResult = makeV2Lock(i, -u, v, scalp, partU, partHalf, midpoint, params, color, shineColor, -1, headband);
+
+      locks.push(mirroredResult.lock);
+      if (mirroredResult.shine) {
+        shines.push(mirroredResult.shine);
+      }
     }
   }
 
@@ -105,10 +129,21 @@ export function solveHairV2(params, pose, structure) {
   // crown to the far side of the visible boundary, cutting across the dome
   // instead of following it. Thin rings keep each jump short enough that
   // the stack reads as a curve hugging the actual scalp surface.
+  // Each ring's outer edge is pushed slightly past its "clean" boundary
+  // into the next ring's territory (except the last, which stays at the
+  // true coverage edge), so consecutive rings overlap instead of just
+  // touching - with the shared-outline render mode, that overlap is what
+  // lets one ring's fill cover its neighbor's stroke and hide the seam
+  // between them, the same way overlapping locks already hide theirs.
   const scalpBase = Boolean(params.showHairV2ScalpBase)
     ? Array.from({ length: SCALP_BASE_RING_COUNT }, (_, ring) => {
         const vLow = lerp(0, params.hairV2ScalpBaseCoverage, ring / SCALP_BASE_RING_COUNT);
-        const vHigh = lerp(0, params.hairV2ScalpBaseCoverage, (ring + 1) / SCALP_BASE_RING_COUNT);
+        const vHighEdge = lerp(0, params.hairV2ScalpBaseCoverage, (ring + 1) / SCALP_BASE_RING_COUNT);
+        const ringSpan = vHighEdge - vLow;
+        const vHigh = Math.min(
+          params.hairV2ScalpBaseCoverage,
+          vHighEdge + ringSpan * SCALP_BASE_RING_OVERLAP
+        );
 
         return makeHeadbandBelt(scalp, vLow, vHigh, color);
       }).flat()
@@ -116,10 +151,12 @@ export function solveHairV2(params, pose, structure) {
 
   return {
     locks,
+    shines,
     partGuide: makePartGuide(scalp, partU, partHalf),
     showPartGuide: Boolean(params.showHairV2PartGuide),
     headbandBelt,
-    scalpBase
+    scalpBase,
+    sharedOutline: Boolean(params.hairV2SharedOutline)
   };
 }
 
@@ -169,7 +206,7 @@ function stratifiedUV(index, cols, rows, mirror = false) {
   return { u, v };
 }
 
-function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color, curveMirror = 1, headband = null) {
+function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color, shineColor, curveMirror = 1, headband = null) {
   const base = scalp(u, v);
 
   // Screen-space direction of increasing u, via finite difference of the surface.
@@ -213,6 +250,10 @@ function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color
   const curve = length * 0.12 * (seededRandom(index, 5) < 0.5 ? -1 : 1) * curveMirror;
   const curlAngle = params.hairV2CurlAngle * Math.PI / 180 * curveMirror;
 
+  const shine = params.showHairV2Shine
+    ? { width: params.hairV2ShineWidth, length: params.hairV2ShineLength, color: shineColor }
+    : null;
+
   return buildLockGeometry(
     base,
     direction,
@@ -225,21 +266,63 @@ function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color
     params.hairV2CurlInterval,
     curlAngle,
     params.hairV2CurlPeriod,
-    index
+    params.hairV2CurlDelay,
+    index,
+    shine
   );
 }
 
-function buildLockGeometry(base, direction, width, length, curve, color, depthPosition, rootRound, interval, curlAngle, curlPeriod, index) {
+function buildLockGeometry(base, direction, width, length, curve, color, depthPosition, rootRound, interval, curlAngle, curlPeriod, curlDelay, index, shine) {
   const segmentCount = Math.max(1, Math.round(length / interval));
   const tangent = { x: -direction.y, y: direction.x };
 
-  const geometry = segmentCount <= 1
-    ? buildStraightLockGeometry(base, direction, tangent, width, length, curve)
-    : buildCurlyLockGeometry(base, direction, tangent, width, length, curlAngle, curlPeriod, segmentCount, index);
+  let geometry;
+  let shineGeometry = null;
 
-  // Bulge the back edge (root) outward, away from the tip, instead of closing
-  // it with a flat line. That flat closing line is what makes the base read
-  // as a triangle; a curve here rounds it into a soft "shield" shape.
+  if (segmentCount <= 1) {
+    geometry = buildStraightLockGeometry(base, direction, tangent, width, length, curve);
+
+    if (shine) {
+      shineGeometry = buildStraightLockGeometry(
+        base,
+        direction,
+        tangent,
+        width * shine.width,
+        length * shine.length,
+        curve * shine.length
+      );
+    }
+  } else {
+    const spineInterval = length / segmentCount;
+    const { points, headings } = buildSpine(base, direction, spineInterval, curlAngle, curlPeriod, curlDelay, segmentCount, index);
+
+    geometry = buildRibbonLockGeometry(points, headings, width);
+
+    if (shine) {
+      // Reuse a literal prefix of the same spine the main lock already
+      // walked, instead of re-deriving a fresh segment count/spacing from a
+      // shorter length - that independent rounding is what let the shine
+      // drift off the lock's actual curl path at length fractions < 1.
+      const shineSegmentCount = Math.max(1, Math.round(segmentCount * shine.length));
+      const shinePoints = points.slice(0, shineSegmentCount + 1);
+      const shineHeadings = headings.slice(0, shineSegmentCount);
+
+      shineGeometry = buildRibbonLockGeometry(shinePoints, shineHeadings, width * shine.width);
+    }
+  }
+
+  const lock = finishLockGeometry(geometry, base, direction, width, rootRound, depthPosition, color.fill, color.stroke, 1);
+  const shineResult = shineGeometry
+    ? finishLockGeometry(shineGeometry, base, direction, width * shine.width, rootRound, depthPosition, shine.color, "none", HAIR_SHINE_OPACITY)
+    : null;
+
+  return { lock, shine: shineResult };
+}
+
+// Bulge the back edge (root) outward, away from the tip, instead of closing
+// it with a flat line. That flat closing line is what makes the base read
+// as a triangle; a curve here rounds it into a soft "shield" shape.
+function finishLockGeometry(geometry, base, direction, width, rootRound, depthPosition, fill, stroke, opacity) {
   const rootBulge = width * 0.35 * rootRound;
   const rootControl = rootBulge > 0.01
     ? offsetPoint(base, direction, -rootBulge)
@@ -251,9 +334,9 @@ function buildLockGeometry(base, direction, width, length, curve, color, depthPo
     notch: null,
     detailLines: [],
     layer: depthPosition < FRONT_BACK_DEPTH_THRESHOLD ? "back" : "front",
-    fill: color.fill,
-    stroke: color.stroke,
-    opacity: 0.95
+    fill,
+    stroke,
+    opacity
   };
 }
 
@@ -281,13 +364,14 @@ function buildStraightLockGeometry(base, direction, tangent, width, length, curv
   return { rootLeft, rootRight, tip, ...curveControls };
 }
 
-// A multi-segment spine walked from base toward tip, rotating heading by
-// curlAngle each step (sign flipping every curlPeriod segments; curlPeriod <= 0
-// means never flip, i.e. a continuous one-direction spiral). A width ribbon is
-// offset perpendicular to the spine and tapered to a point at the tip.
-function buildCurlyLockGeometry(base, direction, tangent, width, length, curlAngle, curlPeriod, segmentCount, index) {
-  const interval = length / segmentCount;
-  const { points, headings } = buildSpine(base, direction, interval, curlAngle, curlPeriod, segmentCount, index);
+// Given an already-walked spine (points/headings), offsets a width ribbon
+// perpendicular to it, tapered to a point at the tip, and smooths both edges
+// into bezier chains. Takes the spine as input rather than walking it itself
+// so the shine can reuse a literal prefix of the same spine the main lock
+// already walked (see buildLockGeometry) instead of re-deriving its own from
+// a shorter length, which is what let it drift off the lock's actual curl
+// path at length fractions < 1.
+function buildRibbonLockGeometry(points, headings, width) {
   const { leftEdge, rightEdge } = buildRibbonEdges(points, headings, width);
   const leftSegments = buildSmoothPath(leftEdge);
   const rightSegments = buildSmoothPath([...rightEdge].reverse());
@@ -301,11 +385,12 @@ function buildCurlyLockGeometry(base, direction, tangent, width, length, curlAng
   };
 }
 
-function buildSpine(base, direction, interval, curlAngle, curlPeriod, segmentCount, index) {
+function buildSpine(base, direction, interval, curlAngle, curlPeriod, curlDelay, segmentCount, index) {
   const points = [base];
   const headings = [];
   let heading = direction;
   let cursor = base;
+  const curlStartSeg = curlDelay * segmentCount;
 
   for (let seg = 0; seg < segmentCount; seg += 1) {
     const segInterval = interval * lerp(0.85, 1.15, seededRandom(index, 20 + seg * 2));
@@ -313,8 +398,17 @@ function buildSpine(base, direction, interval, curlAngle, curlPeriod, segmentCou
     points.push(cursor);
     headings.push(heading);
 
-    const flip = curlPeriod > 0 && Math.floor((seg + 1) / curlPeriod) % 2 === 1;
-    const signedAngle = (flip ? -1 : 1) * curlAngle;
+    // activeSeg counts segments since curling actually starts, so the flip
+    // period and ramp are both phased relative to the onset rather than the
+    // root - the first curling segment always behaves the same regardless
+    // of where the delay boundary happens to land. At curlDelay=0 this
+    // bypasses to the exact original formula (activeSeg===seg, ramp===1).
+    const activeSeg = curlDelay > 0 ? seg - curlStartSeg : seg;
+    const ramp = curlDelay > 0
+      ? smoothstep(-CURL_DELAY_RAMP_SEGMENTS, CURL_DELAY_RAMP_SEGMENTS, activeSeg)
+      : 1;
+    const flip = curlPeriod > 0 && Math.floor((Math.max(activeSeg, 0) + 1) / curlPeriod) % 2 === 1;
+    const signedAngle = (flip ? -1 : 1) * curlAngle * ramp;
     const jitteredAngle = signedAngle * lerp(0.85, 1.15, seededRandom(index, 20 + seg * 2 + 1));
     heading = normalizePoint(rotatePoint(heading, jitteredAngle));
   }

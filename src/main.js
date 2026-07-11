@@ -70,7 +70,33 @@ const controlGroups = [
       "torsoLength",
       "torsoNarrowing",
       "shoulderRadius",
-      "shoulderGap"
+      "shoulderGap",
+      "ribCageWidth",
+      "ribCageHeight",
+      "ribCageY",
+      "ribCageTilt",
+      "ribCageTopConnectorAngle"
+    ],
+    open: false
+  },
+  {
+    title: "Chest Landmarks",
+    keys: [
+      "clavicleAngleOffset",
+      "clavicleYDrop",
+      "clavicleRadiusOffset",
+      "axillaAngleOffset",
+      "axillaYDrop",
+      "axillaRadiusInset",
+      "costalAngleOffset",
+      "costalYDrop",
+      "costalRadiusInset",
+      "sternalNotchYDrop",
+      "sternalNotchZ",
+      "xiphoidYDrop",
+      "xiphoidZ",
+      "pecZ",
+      "pecY"
     ],
     open: false
   },

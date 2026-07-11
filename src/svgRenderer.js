@@ -4,9 +4,9 @@ export function renderFaceSvg(rig) {
   const headPathD = getHeadOutlinePathD(rig.head, rig.faceRoundness);
 
   return `
-    <svg viewBox="0 0 500 500" role="img" aria-label="2.5D anime face preview">
+    <svg viewBox="0 0 700 700" role="img" aria-label="2.5D anime face preview">
       ${rig.removeStrokes ? renderRemoveStrokesStyle() : ""}
-      ${renderBody(rig.body)}
+      ${renderBody(rig.body, rig.showGuides)}
       ${renderHelmetLayers(rig.helmet?.back)}
       ${renderHair(rig.hair, "back")}
       ${renderHairV2(rig.hairV2, "back")}
@@ -33,17 +33,46 @@ function renderRemoveStrokesStyle() {
   `;
 }
 
-function renderBody(body) {
-  if (!body || !body.neck) {
+function renderBody(body, showGuides) {
+  if (!body || !body.torsoOutline) {
     return "";
   }
 
   return `
-    ${renderBodyShape(body.neck)}
-    ${renderBodyShape(body.torso)}
+    ${renderBodyShape(body.torsoOutline)}
     ${body.shoulders.map(renderShoulderGuide).join("")}
-    ${body.connectors.map(renderConnector).join("")}
+    ${showGuides && body.ribCageGuide ? renderGuidePath(body.ribCageGuide) : ""}
+    ${showGuides ? renderBodyLandmarks(body.landmarks) : ""}
   `;
+}
+
+function renderBodyLandmarks(landmarks) {
+  if (!landmarks) {
+    return "";
+  }
+
+  const points = [
+    landmarks.clavicleLeft,
+    landmarks.clavicleRight,
+    landmarks.axillaLeft,
+    landmarks.axillaRight,
+    landmarks.costalLeft,
+    landmarks.costalRight,
+    landmarks.sternalNotch,
+    landmarks.xiphoid,
+    landmarks.pecsLeft,
+    landmarks.pecsRight
+  ].filter(Boolean);
+
+  return points.map(point => `
+    <circle
+      cx="${point.x}"
+      cy="${point.y}"
+      r="4"
+      fill="#a1466b"
+      opacity="0.85"
+    />
+  `).join("");
 }
 
 function renderBodyShape(shape) {
@@ -64,18 +93,6 @@ function renderShoulderGuide(shoulder) {
       cx="${shoulder.cx}"
       cy="${shoulder.cy}"
       r="${shoulder.r}"
-      fill="none"
-      stroke="#8a8a8a"
-      stroke-width="2"
-      stroke-dasharray="7 5"
-    />
-  `;
-}
-
-function renderConnector([from, to]) {
-  return `
-    <path
-      d="M ${from.x} ${from.y} L ${to.x} ${to.y}"
       fill="none"
       stroke="#8a8a8a"
       stroke-width="2"

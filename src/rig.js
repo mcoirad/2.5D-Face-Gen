@@ -1,5 +1,6 @@
 import {
   clamp,
+  isPointInPolygon,
   lerp,
   poseSign,
   smoothstep
@@ -36,6 +37,13 @@ export const defaultFeatureLandmarks = {
       left: [-0.1679, 1.1889],
       mid: [-0.0197, 1.2605],
       right: [0.1505, 1.1889]
+    },
+    // pecs are torso-anchored (fraction of orbitRadius / torsoLength, see
+    // solveBody), not skull-anchored like the rest of this table - only the
+    // front/threeQuarter/side blend machinery is being reused here.
+    pecs: {
+      left: [-0.55, 0.12],
+      right: [0.55, 0.12]
     }
   },
   threeQuarter: {
@@ -53,6 +61,10 @@ export const defaultFeatureLandmarks = {
       left: [-0.3924, 1.1501],
       mid: [-0.2596, 1.2279],
       right: [-0.1241, 1.1625]
+    },
+    pecs: {
+      left: [-0.75, 0.1],
+      right: [0.15, 0.1]
     }
   },
   side: {
@@ -70,6 +82,10 @@ export const defaultFeatureLandmarks = {
       left: [-1.0353+ 0.05 , 1.1194],
       mid: [-1.0849+ 0.1, 1.275],
       right: [-0.8422+ 0.05, 1.1723]
+    },
+    pecs: {
+      left: [-0.45, 0.12],
+      right: [-0.25, 0.12]
     }
   }
 };
@@ -156,9 +172,25 @@ export function solveFaceRig(params) {
   };
 }
 
+// Sessions saved before `pecs` was added to defaultFeatureLandmarks persist a
+// params.featureLandmarks that predates the field, so blending would crash on
+// a missing pecs. Backfill it from the defaults rather than requiring every
+// saved face to be re-exported.
+function withPecsFallback(featureLandmarks) {
+  if (!featureLandmarks) {
+    return featureLandmarks;
+  }
+
+  return {
+    front: { pecs: defaultFeatureLandmarks.front.pecs, ...featureLandmarks.front },
+    threeQuarter: { pecs: defaultFeatureLandmarks.threeQuarter.pecs, ...featureLandmarks.threeQuarter },
+    side: { pecs: defaultFeatureLandmarks.side.pecs, ...featureLandmarks.side }
+  };
+}
+
 function solveHead(params, pose) {
   const projectStructure = createStructureProjector(params);
-  const reference = interpolateReferencePose(params.featureLandmarks ?? defaultFeatureLandmarks, pose.amount);
+  const reference = interpolateReferencePose(withPecsFallback(params.featureLandmarks) ?? defaultFeatureLandmarks, pose.amount);
   const skull = {
     cx: 0,
     cy: FACE_CENTER_Y,
@@ -217,22 +249,31 @@ export function createStructureProjector(params) {
   };
 }
 
-function sampleEllipse(project, ellipse, segments) {
-  return sampleEllipseArc(project, ellipse, 0, Math.PI * 2, segments);
+function sampleEllipse(project, ellipse, segments, rotation = 0) {
+  return sampleEllipseArc(project, ellipse, 0, Math.PI * 2, segments, rotation);
 }
 
-function sampleEllipseArc(project, ellipse, startTheta, endTheta, segments) {
+function ellipsePointAtAngle(project, ellipse, theta, rotation = 0) {
+  const cosR = Math.cos(rotation);
+  const sinR = Math.sin(rotation);
+  const localX = ellipse.rx * Math.cos(theta);
+  const localY = ellipse.ry * Math.sin(theta);
+
+  return project(
+    ellipse.cx + localX * cosR - localY * sinR,
+    ellipse.cy + localX * sinR + localY * cosR,
+    ellipse.z
+  );
+}
+
+function sampleEllipseArc(project, ellipse, startTheta, endTheta, segments, rotation = 0) {
   const points = [];
 
   for (let i = 0; i <= segments; i += 1) {
     const t = i / segments;
     const theta = lerp(startTheta, endTheta, t);
 
-    points.push(project(
-      ellipse.cx + ellipse.rx * Math.cos(theta),
-      ellipse.cy + ellipse.ry * Math.sin(theta),
-      ellipse.z
-    ));
+    points.push(ellipsePointAtAngle(project, ellipse, theta, rotation));
   }
 
   return points;
@@ -358,7 +399,7 @@ function polygonSignedArea(points) {
 // replace it.
 function extendOutlineWithProfile(outline, features, ignoreMouthProtrusion) {
   const mouth = outlinePoint(features.mouth.mid);
-  const mouthProtrudes = !ignoreMouthProtrusion && !pointInPolygon(mouth, outline);
+  const mouthProtrudes = !ignoreMouthProtrusion && !isPointInPolygon(mouth, outline);
   const outlineForExtension = outline;
   const candidates = [
     ...(mouthProtrudes ? [mouth] : []),
@@ -366,7 +407,7 @@ function extendOutlineWithProfile(outline, features, ignoreMouthProtrusion) {
     outlinePoint(features.nose.tip),
     outlinePoint(features.nose.bridge)
   ];
-  const protruding = candidates.filter(point => !pointInPolygon(point, outlineForExtension));
+  const protruding = candidates.filter(point => !isPointInPolygon(point, outlineForExtension));
 
   if (!protruding.length) {
     return outline;
@@ -473,25 +514,6 @@ function segmentsIntersect(a, b, c, d) {
 
 function orientation(a, b, c) {
   return Math.sign((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
-}
-
-function pointInPolygon(point, polygon) {
-  let inside = false;
-
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = polygon[i].x;
-    const yi = polygon[i].y;
-    const xj = polygon[j].x;
-    const yj = polygon[j].y;
-    const intersects = (yi > point.y) !== (yj > point.y)
-      && point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
-
-    if (intersects) {
-      inside = !inside;
-    }
-  }
-
-  return inside;
 }
 
 function solveFeatures(params, pose, structure) {
@@ -1296,7 +1318,7 @@ const SHOULDER_BASE_ANGLE = Math.PI / 2;
 
 function solveBody(params, pose, structure) {
   if (!params.showBody) {
-    return { neck: null, torso: null, shoulders: [], connectors: [] };
+    return { torsoOutline: null, shoulders: [], landmarks: {}, ribCageGuide: [] };
   }
 
   const projectStructure = createStructureProjector(params);
@@ -1311,12 +1333,6 @@ function solveBody(params, pose, structure) {
   const neckBottomRight = projectStructure(anchorX + params.neckBottomWidth / 2, bottomY, skull.z);
   const neckBottomLeft = projectStructure(anchorX - params.neckBottomWidth / 2, bottomY, skull.z);
 
-  const neck = {
-    points: [neckTopLeft, neckTopRight, neckBottomRight, neckBottomLeft],
-    fill: params.bodyColor,
-    stroke: "black"
-  };
-
   // Shoulders orbit the skull's own vertical (Y) axis as the head yaws, the
   // same guideAngle/sin/cos rotation hairV2's scalpPoint uses for locks
   // placed around the head, rather than sliding sideways with the jaw.
@@ -1326,28 +1342,83 @@ function solveBody(params, pose, structure) {
   const shoulderModelY = bottomY + params.shoulderRadius + params.shoulderGap;
   const orbitRadius = params.torsoWidth / 2;
 
-  const orbitPoint = baseAngle => {
+  const orbitPoint = (baseAngle, y, radius) => {
     const guideAngle = baseAngle - pose.yaw * Math.PI / 2;
-    const x = anchorX + Math.sin(guideAngle) * orbitRadius;
-    const z = skull.z + Math.cos(guideAngle) * orbitRadius;
+    const x = anchorX + Math.sin(guideAngle) * radius;
+    const z = skull.z + Math.cos(guideAngle) * radius;
 
-    return projectStructure(x, shoulderModelY, z);
+    return projectStructure(x, y, z);
   };
 
-  const shoulderLeft = orbitPoint(-SHOULDER_BASE_ANGLE);
-  const shoulderRight = orbitPoint(SHOULDER_BASE_ANGLE);
+  const shoulderLeft = orbitPoint(-SHOULDER_BASE_ANGLE, shoulderModelY, orbitRadius);
+  const shoulderRight = orbitPoint(SHOULDER_BASE_ANGLE, shoulderModelY, orbitRadius);
   const shoulders = [
     { cx: shoulderLeft.x, cy: shoulderLeft.y, r: params.shoulderRadius },
     { cx: shoulderRight.x, cy: shoulderRight.y, r: params.shoulderRadius }
   ];
 
+  // Group A landmarks: rigid points on the same torso ring the shoulders
+  // orbit, each expressed as an offset from the shoulder's own angle/y/radius
+  // so the tuning params read as "relative to the shoulder".
+  const clavicleAngle = SHOULDER_BASE_ANGLE - params.clavicleAngleOffset;
+  const clavicleY = shoulderModelY - params.shoulderRadius - params.clavicleYDrop;
+  const clavicleRadius = orbitRadius + params.clavicleRadiusOffset;
+  const clavicleLeft = orbitPoint(-clavicleAngle, clavicleY, clavicleRadius);
+  const clavicleRight = orbitPoint(clavicleAngle, clavicleY, clavicleRadius);
+
+  const axillaAngle = SHOULDER_BASE_ANGLE - params.axillaAngleOffset;
+  const axillaY = shoulderModelY + params.axillaYDrop;
+  const axillaRadius = orbitRadius - params.axillaRadiusInset;
+  const axillaLeft = orbitPoint(-axillaAngle, axillaY, axillaRadius);
+  const axillaRight = orbitPoint(axillaAngle, axillaY, axillaRadius);
+
+  const costalAngle = SHOULDER_BASE_ANGLE - params.costalAngleOffset;
+  const costalY = shoulderModelY + params.costalYDrop;
+  const costalRadius = orbitRadius - params.costalRadiusInset;
+  const costalLeft = orbitPoint(-costalAngle, costalY, costalRadius);
+  const costalRight = orbitPoint(costalAngle, costalY, costalRadius);
+
+  // Group C landmarks: sit on the model's central axis (anchorX), same as
+  // skull.cx, so they need no yaw orbit at all - only a plausible forward z
+  // so pitch swings them believably.
+  const sternalNotchY = bottomY + params.sternalNotchYDrop;
+  const xiphoidY = sternalNotchY + params.xiphoidYDrop;
+  const sternalNotch = projectStructure(anchorX, sternalNotchY, params.sternalNotchZ);
+  const xiphoid = projectStructure(anchorX, xiphoidY, params.xiphoidZ);
+
+  // Group B landmark: pecs reuse the same front/threeQuarter/side blend
+  // machinery the face features use (structure.reference is already blended
+  // by pose.amount), since their apparent position isn't a clean rigid
+  // rotation - but they're projected relative to the torso ring
+  // (anchorX/orbitRadius/shoulderModelY), not the skull, so they track
+  // torso size instead of face size.
+  const pecsReference = structure.reference.pecs;
+  const pecsLeft = projectStructure(
+    anchorX + pose.sign * pecsReference.left[0] * orbitRadius,
+    shoulderModelY + pecsReference.left[1] * params.torsoLength + params.pecY,
+    params.pecZ
+  );
+  const pecsRight = projectStructure(
+    anchorX + pose.sign * pecsReference.right[0] * orbitRadius,
+    shoulderModelY + pecsReference.right[1] * params.torsoLength + params.pecY,
+    params.pecZ
+  );
+
+  const landmarks = {
+    clavicleLeft,
+    clavicleRight,
+    axillaLeft,
+    axillaRight,
+    costalLeft,
+    costalRight,
+    sternalNotch,
+    xiphoid,
+    pecsLeft,
+    pecsRight
+  };
+
   const shoulderTopLeft = { x: shoulders[0].cx, y: shoulders[0].cy - shoulders[0].r };
   const shoulderTopRight = { x: shoulders[1].cx, y: shoulders[1].cy - shoulders[1].r };
-
-  const connectors = [
-    [neckBottomLeft, shoulderTopLeft],
-    [neckBottomRight, shoulderTopRight]
-  ];
 
   // Isoceles trapezoid hanging from the shoulder tops (screen space, since the
   // shoulder tops are themselves already-projected/orbited points, not a
@@ -1364,13 +1435,145 @@ function solveBody(params, pose, structure) {
     y: shoulderTopRight.y + params.torsoLength
   };
 
-  const torso = {
-    points: [shoulderTopLeft, shoulderTopRight, torsoBottomRight, torsoBottomLeft],
+  // Upper-torso "bean" (the rib-cage mass used as a base shape in figure
+  // drawing): a tall ellipse on the torso's own axis. It sits upright in
+  // front view but tilts - top pulled back - as the pose turns toward
+  // profile, using the same 0-1 turn easing skull/lowerFace blending relies
+  // on elsewhere for front-to-profile transitions.
+  const turn = smoothstep(0, 1, pose.amount);
+  const ribCageTiltRadians = pose.sign * turn * (params.ribCageTilt * Math.PI / 180);
+  const ribCage = {
+    cx: anchorX,
+    cy: shoulderModelY + params.ribCageY,
+    rx: params.ribCageWidth / 2,
+    ry: params.ribCageHeight / 2,
+    z: skull.z
+  };
+  const ribCageGuide = sampleEllipse(projectStructure, ribCage, 48, ribCageTiltRadians);
+
+  // Merged neck+torso silhouette: the torso's solid outline is the union of
+  // the trapezoid (shoulderTop*/torsoBottom*) and the ribCage ellipse -
+  // trapezoid corners outside the ellipse become sharp vertices ("poke-out"
+  // bumps), corners inside it are dropped so the outline follows the
+  // ellipse's own arc through that region instead. The top corners are
+  // additionally compared against two dedicated points on the ellipse's own
+  // top arc - whichever is more outward wins and is what the neck's bottom
+  // corners connect to.
+  const topAngleOffsetRadians = params.ribCageTopConnectorAngle * Math.PI / 180;
+  const ellipseTopTheta = -Math.PI / 2;
+  const rightTopTheta = ellipseTopTheta + topAngleOffsetRadians;
+  const leftTopTheta = ellipseTopTheta - topAngleOffsetRadians;
+  const ellipseTopRight = ellipsePointAtAngle(projectStructure, ribCage, rightTopTheta, ribCageTiltRadians);
+  const ellipseTopLeft = ellipsePointAtAngle(projectStructure, ribCage, leftTopTheta, ribCageTiltRadians);
+
+  const topConnectorRight = ellipseTopRight.x > shoulderTopRight.x ? ellipseTopRight : shoulderTopRight;
+  const topConnectorLeft = ellipseTopLeft.x < shoulderTopLeft.x ? ellipseTopLeft : shoulderTopLeft;
+
+  const lowerArc = sampleEllipseArc(
+    projectStructure,
+    ribCage,
+    rightTopTheta,
+    leftTopTheta + Math.PI * 2,
+    32,
+    ribCageTiltRadians
+  );
+
+  const ribCageScreenCenter = projectStructure(ribCage.cx, ribCage.cy, ribCage.z);
+  // The splice below sorts by each point's *geometric* atan2 angle around
+  // ribCageScreenCenter, not the ellipse's parametric theta - those two angle
+  // systems diverge for rx != ry, so the unwrap reference has to be the arc's
+  // own first point's geometric angle, not rightTopTheta itself, or points
+  // near the seam can wrap the wrong way and sort to the wrong end.
+  const arcStartAngle = Math.atan2(
+    lowerArc[0].y - ribCageScreenCenter.y,
+    lowerArc[0].x - ribCageScreenCenter.x
+  );
+  const splicedLowerArc = spliceCornersIntoArc(
+    lowerArc,
+    [torsoBottomRight, torsoBottomLeft],
+    ribCageScreenCenter,
+    arcStartAngle
+  );
+
+  // When a side's top AND bottom trapezoid corners are both outside the
+  // ellipse, connect them with a straight edge instead of routing through
+  // the ellipse arc between them - the arc there would just cut back inward
+  // past where the direct edge already goes, producing a self-crossing lobe.
+  // Only applies when the shoulder (not the ellipse's own top point) is
+  // actually the winning top connector, since otherwise the outline isn't
+  // touching the shoulder corner at all on that side.
+  const rightBottomOutside = !isPointInPolygon(torsoBottomRight, ribCageGuide);
+  const leftBottomOutside = !isPointInPolygon(torsoBottomLeft, ribCageGuide);
+  const rightUsesDirectEdge = topConnectorRight === shoulderTopRight && rightBottomOutside;
+  const leftUsesDirectEdge = topConnectorLeft === shoulderTopLeft && leftBottomOutside;
+
+  const rightBottomIndex = splicedLowerArc.indexOf(torsoBottomRight);
+  const leftBottomIndex = splicedLowerArc.indexOf(torsoBottomLeft);
+  const arcSliceStart = rightUsesDirectEdge && rightBottomIndex !== -1 ? rightBottomIndex + 1 : 0;
+  const arcSliceEnd = leftUsesDirectEdge && leftBottomIndex !== -1 ? leftBottomIndex : splicedLowerArc.length;
+  const trimmedLowerArc = splicedLowerArc.slice(arcSliceStart, arcSliceEnd);
+
+  const torsoOutline = {
+    points: [
+      neckTopLeft,
+      neckTopRight,
+      neckBottomRight,
+      topConnectorRight,
+      ...(rightUsesDirectEdge ? [torsoBottomRight] : []),
+      ...trimmedLowerArc,
+      ...(leftUsesDirectEdge ? [torsoBottomLeft] : []),
+      topConnectorLeft,
+      neckBottomLeft
+    ],
     fill: params.bodyColor,
     stroke: "black"
   };
 
-  return { neck, torso, shoulders, connectors };
+  return { torsoOutline, shoulders, landmarks, ribCageGuide };
+}
+
+// Inserts `corners` into `arcPoints` (an already-ordered, non-wrapping walk of
+// consecutive angles starting at `arcStartTheta`) wherever each corner is
+// OUTSIDE the ellipse the arc was sampled from - found via isPointInPolygon
+// against the arc itself - then positioned by comparing the corner's own
+// angle around `center` against each sample point's angle, both measured in
+// the same monotonically increasing (unwrapped) space as arcStartTheta.
+// Corners that are inside are dropped entirely (the arc already curves
+// smoothly through that region).
+function spliceCornersIntoArc(arcPoints, corners, center, arcStartTheta) {
+  const outsideCorners = corners
+    .filter(corner => !isPointInPolygon(corner, arcPoints))
+    .map(corner => ({
+      point: corner,
+      theta: unwrapAngleFrom(Math.atan2(corner.y - center.y, corner.x - center.x), arcStartTheta)
+    }));
+
+  if (!outsideCorners.length) {
+    return arcPoints;
+  }
+
+  const arcWithThetas = arcPoints.map(point => ({
+    point,
+    theta: unwrapAngleFrom(Math.atan2(point.y - center.y, point.x - center.x), arcStartTheta)
+  }));
+
+  return [...arcWithThetas, ...outsideCorners]
+    .sort((a, b) => a.theta - b.theta)
+    .map(entry => entry.point);
+}
+
+// Shifts `angle` by whole turns of 2*PI until it is >= `reference`, so a set
+// of angles measured independently via atan2 (range -PI..PI) can be sorted
+// consistently against an arc's own monotonically increasing theta sequence
+// that may itself run past a single 2*PI turn.
+function unwrapAngleFrom(angle, reference) {
+  let unwrapped = angle;
+
+  while (unwrapped < reference) {
+    unwrapped += Math.PI * 2;
+  }
+
+  return unwrapped;
 }
 
 function makeHelmetShell(project, skull, pose) {
@@ -1620,6 +1823,10 @@ function blendReferencePose(fromPose, toPose, amount) {
       left: blendPair(fromPose.mouth.left, toPose.mouth.left, amount),
       mid: blendPair(fromPose.mouth.mid, toPose.mouth.mid, amount),
       right: blendPair(fromPose.mouth.right, toPose.mouth.right, amount)
+    },
+    pecs: {
+      left: blendPair(fromPose.pecs.left, toPose.pecs.left, amount),
+      right: blendPair(fromPose.pecs.right, toPose.pecs.right, amount)
     }
   };
 }

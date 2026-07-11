@@ -126,6 +126,19 @@ export const defaultOutlineLandmarks = {
   }
 };
 
+// Authored for the screen-right shoulder (shoulders[1] / shoulderTopRight /
+// neckBottomRight). The screen-left shoulder mirrors via 180 - angle about
+// its own circle center - exact for a circle, and independent of yaw since
+// each shoulder's circle already carries yaw via orbitPoint.
+// angle2 = inner point (neck side), angle3 = outer/lateral point. Both sit
+// in the upper hemisphere (negative sin) since pauldrons cap the shoulder
+// top. Placeholders - tune by eye.
+export const defaultPauldronLandmarks = {
+  front: { angle2: -220, angle3: -20 },
+  threeQuarter: { angle2: -200, angle3: -15 },
+  side: { angle2: -195, angle3: -0 }
+};
+
 const HAIR_MIRROR_GUIDES = [4, 3, 2, 1, 0, 7, 6, 5];
 const HAIR_MIRROR_SOURCE_GUIDES = [0, 1, 2, 5, 6];
 export const OUTLINE_UPPER_ARC_POINT_COUNT = 19;
@@ -151,6 +164,8 @@ export function solveFaceRig(params) {
     ? extendOutlineWithProfile(head.outline, features, params.outlineIgnoreMouthProtrusion)
     : head.outline;
 
+  const body = solveBody(params, pose, head.structure);
+
   return {
     showGuides: params.showGuides,
     removeStrokes: params.removeStrokes,
@@ -165,7 +180,8 @@ export function solveFaceRig(params) {
     head,
     hair: solveHair(params, pose, head.structure),
     hairV2: params.showHairV2 ? solveHairV2(params, pose, head.structure) : null,
-    body: solveBody(params, pose, head.structure),
+    body,
+    armor: solveArmor(params, pose, head.structure, body),
     helmet: solveHelmet(params, pose, head.structure, features),
     features,
     visibility: solveVisibility(pose.amount)
@@ -1312,13 +1328,54 @@ function solveHelmet(params, pose, structure, features) {
   };
 }
 
+function interpolatePauldronLandmarks(pauldronLandmarks, amount) {
+  if (amount <= 0.5) {
+    return blendPauldronLandmarks(pauldronLandmarks.front, pauldronLandmarks.threeQuarter, amount / 0.5);
+  }
+
+  return blendPauldronLandmarks(pauldronLandmarks.threeQuarter, pauldronLandmarks.side, (amount - 0.5) / 0.5);
+}
+
+function blendPauldronLandmarks(fromPose, toPose, amount) {
+  return {
+    angle2: lerp(fromPose.angle2, toPose.angle2, amount),
+    angle3: lerp(fromPose.angle3, toPose.angle3, amount)
+  };
+}
+
+function mirrorPauldronReference(reference) {
+  return { angle2: 180 - reference.angle2, angle3: 180 - reference.angle3 };
+}
+
+// shoulders[i].{cx,cy,r} are already fully-projected screen-space values (see
+// createStructureProjector - no perspective scaling, scale is always 1), so
+// this is a plain 2D circle formula with no pose.sign/yaw term - the yaw
+// rotation already happened via orbitPoint to produce cx/cy.
+function shoulderPolarPoint(shoulder, angleDegrees) {
+  const theta = angleDegrees * Math.PI / 180;
+
+  return {
+    x: shoulder.cx + Math.cos(theta) * shoulder.r,
+    y: shoulder.cy + Math.sin(theta) * shoulder.r
+  };
+}
+
 // Shoulders sit directly left/right of the skull's central axis at yaw 0. This
 // is the "at rest" longitude each orbits from as the head yaws.
 const SHOULDER_BASE_ANGLE = Math.PI / 2;
 
 function solveBody(params, pose, structure) {
   if (!params.showBody) {
-    return { torsoOutline: null, shoulders: [], landmarks: {}, ribCageGuide: [] };
+    return {
+      torsoOutline: null,
+      shoulders: [],
+      landmarks: {},
+      ribCageGuide: [],
+      shoulderTopLeft: null,
+      shoulderTopRight: null,
+      neckBottomLeft: null,
+      neckBottomRight: null
+    };
   }
 
   const projectStructure = createStructureProjector(params);
@@ -1568,7 +1625,44 @@ function solveBody(params, pose, structure) {
     stroke: "black"
   };
 
-  return { torsoOutline, shoulders, landmarks, ribCageGuide };
+  return {
+    torsoOutline,
+    shoulders,
+    landmarks,
+    ribCageGuide,
+    shoulderTopLeft,
+    shoulderTopRight,
+    neckBottomLeft,
+    neckBottomRight
+  };
+}
+
+function solveArmor(params, pose, structure, body) {
+  if (!params.showArmor || !body.shoulderTopLeft || !body.shoulderTopRight || body.shoulders.length < 2) {
+    return { pauldronLeft: null, pauldronRight: null };
+  }
+
+  const pauldronReference = interpolatePauldronLandmarks(defaultPauldronLandmarks, pose.amount);
+  const mirroredReference = mirrorPauldronReference(pauldronReference);
+
+  const buildPauldron = (shoulder, shoulderTop, neckBottom, reference) => ({
+    points: [
+      {
+        x: lerp(shoulderTop.x, neckBottom.x, params.pauldronPosition),
+        y: lerp(shoulderTop.y, neckBottom.y, params.pauldronPosition) + params.pauldronYOffset
+      },
+      shoulderPolarPoint(shoulder, reference.angle2),
+      shoulderPolarPoint(shoulder, reference.angle3)
+    ],
+    fill: params.armorColor,
+    stroke: "black",
+    curve: params.pauldronCurve
+  });
+
+  return {
+    pauldronLeft: buildPauldron(body.shoulders[0], body.shoulderTopLeft, body.neckBottomLeft, mirroredReference),
+    pauldronRight: buildPauldron(body.shoulders[1], body.shoulderTopRight, body.neckBottomRight, pauldronReference)
+  };
 }
 
 // Inserts `corners` into `arcPoints` (an already-ordered, non-wrapping walk of

@@ -7,6 +7,7 @@ export function renderFaceSvg(rig) {
     <svg viewBox="0 0 700 700" role="img" aria-label="2.5D anime face preview">
       ${rig.removeStrokes ? renderRemoveStrokesStyle() : ""}
       ${renderBody(rig.body, rig.showGuides)}
+      ${renderArmor(rig.armor)}
       ${renderHelmetLayers(rig.helmet?.back)}
       ${renderHair(rig.hair, "back")}
       ${renderHairV2(rig.hairV2, "back")}
@@ -44,6 +45,67 @@ function renderBody(body, showGuides) {
     ${showGuides && body.ribCageGuide ? renderGuidePath(body.ribCageGuide) : ""}
     ${showGuides ? renderBodyLandmarks(body.landmarks) : ""}
   `;
+}
+
+function renderArmor(armor) {
+  if (!armor) {
+    return "";
+  }
+
+  return `
+    ${armor.pauldronLeft ? renderCurvedShape(armor.pauldronLeft) : ""}
+    ${armor.pauldronRight ? renderCurvedShape(armor.pauldronRight) : ""}
+  `;
+}
+
+// Same shape as renderBodyShape, but every edge bulges by shape.curve px via
+// a quadratic control point pushed away from the shape's own centroid (the
+// technique renderJawBendPath below uses for just two jaw segments) - curve
+// 0 falls back to plain straight-line segments.
+function renderCurvedShape(shape) {
+  return `
+    <path
+      d="${renderCurvedPointPath(shape.points, shape.curve ?? 0)} Z"
+      fill="${shape.fill}"
+      stroke="${shape.stroke}"
+      stroke-width="4"
+      stroke-linejoin="round"
+    />
+  `;
+}
+
+function renderCurvedPointPath(points, curveAmount) {
+  if (curveAmount === 0) {
+    return renderPointPath(points);
+  }
+
+  const n = points.length;
+  const centroid = scalePoint(
+    points.reduce((sum, point) => addPoints(sum, point), { x: 0, y: 0 }),
+    1 / n
+  );
+
+  let d = `M ${points[0].x} ${points[0].y}`;
+
+  for (let i = 0; i < n; i += 1) {
+    const from = points[i];
+    const to = points[(i + 1) % n];
+    const mid = scalePoint(addPoints(from, to), 0.5);
+    const edge = subtractPoints(to, from);
+    const edgeLength = Math.hypot(edge.x, edge.y) || 1;
+    let perpendicular = { x: -edge.y / edgeLength, y: edge.x / edgeLength };
+    const towardMid = subtractPoints(mid, centroid);
+
+    if (perpendicular.x * towardMid.x + perpendicular.y * towardMid.y < 0) {
+      perpendicular = scalePoint(perpendicular, -1);
+    }
+
+    const control = addPoints(mid, scalePoint(perpendicular, curveAmount));
+
+    d += ` Q ${control.x} ${control.y} ${to.x} ${to.y}`;
+  }
+
+  return d;
 }
 
 function renderBodyLandmarks(landmarks) {

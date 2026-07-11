@@ -101,6 +101,11 @@ const controlGroups = [
     open: false
   },
   {
+    title: "Armor",
+    keys: ["showArmor", "armorColor", "pauldronPosition", "pauldronYOffset", "pauldronCurve"],
+    open: false
+  },
+  {
     title: "Eyes",
     keys: [
       "eyeSpacing",

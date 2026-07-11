@@ -157,7 +157,12 @@ export const defaultParams = {
   mouthCavityColor: "#4a1f1f",
   clipMouthToFace: true,
   pecZ: 30,
-  pecY: 0
+  pecY: 0,
+  showArmor: true,
+  armorColor: "#8a97a6",
+  pauldronPosition: 0.5,
+  pauldronYOffset: 0,
+  pauldronCurve: 0
 };
 
 export const sliderConfig = {
@@ -236,6 +241,9 @@ export const sliderConfig = {
   teethGap: [0, 1, 0.01],
   pecZ: [0, 60, 1],
   pecY: [-40, 80, 1],
+  pauldronPosition: [0, 1, 0.01],
+  pauldronYOffset: [-30, 30, 1],
+  pauldronCurve: [-20, 20, 1],
   hairStrandCount: [0, 100, 1],
   hairStrandLength: [30, 150, 1],
   hairStrandThickness: [2, 40, 1],
@@ -311,7 +319,8 @@ export const colorConfig = {
   hairV2HeadbandColor: true,
   eyeIrisColor: true,
   mouthCavityColor: true,
-  bodyColor: true
+  bodyColor: true,
+  armorColor: true
 };
 
 export const toggleConfig = {
@@ -321,6 +330,7 @@ export const toggleConfig = {
   outlineIgnoreMouthProtrusion: true,
   clipMouthToFace: true,
   showBody: true,
+  showArmor: true,
   showHelmet: true,
   showHelmetShell: true,
   showHelmetFacePlate: true,

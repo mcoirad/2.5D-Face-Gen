@@ -1459,62 +1459,92 @@ function solveBody(params, pose, structure) {
   // additionally compared against two dedicated points on the ellipse's own
   // top arc - whichever is more outward wins and is what the neck's bottom
   // corners connect to.
-  const topAngleOffsetRadians = params.ribCageTopConnectorAngle * Math.PI / 180;
-  const ellipseTopTheta = -Math.PI / 2;
-  const rightTopTheta = ellipseTopTheta + topAngleOffsetRadians;
-  const leftTopTheta = ellipseTopTheta - topAngleOffsetRadians;
-  const ellipseTopRight = ellipsePointAtAngle(projectStructure, ribCage, rightTopTheta, ribCageTiltRadians);
-  const ellipseTopLeft = ellipsePointAtAngle(projectStructure, ribCage, leftTopTheta, ribCageTiltRadians);
+  //
+  // Built as a function of the tilt angle (rather than inline) because the
+  // neck's own bottom corners are fixed while the ellipse's top-connector
+  // points rotate with the tilt - for a narrow band of moderate tilt values
+  // at extreme yaw this can swing the straight neck-to-connector edge back
+  // across the arc's own nearby curve. Rather than solving that with full
+  // edge-intersection clipping, build the outline, and if it comes out
+  // self-intersecting (checked with the same polygonSelfIntersects the head
+  // outline's own profile extension already uses), retry once with the tilt
+  // disabled - a rigid, simple ellipse is always safe, so this guarantees a
+  // valid shape at the cost of the tilt not applying for that narrow case.
+  const buildTorsoOutlinePoints = tiltRadians => {
+    const topAngleOffsetRadians = params.ribCageTopConnectorAngle * Math.PI / 180;
+    const ellipseTopTheta = -Math.PI / 2;
+    const rightTopTheta = ellipseTopTheta + topAngleOffsetRadians;
+    const leftTopTheta = ellipseTopTheta - topAngleOffsetRadians;
+    const ellipseTopRight = ellipsePointAtAngle(projectStructure, ribCage, rightTopTheta, tiltRadians);
+    const ellipseTopLeft = ellipsePointAtAngle(projectStructure, ribCage, leftTopTheta, tiltRadians);
 
-  const topConnectorRight = ellipseTopRight.x > shoulderTopRight.x ? ellipseTopRight : shoulderTopRight;
-  const topConnectorLeft = ellipseTopLeft.x < shoulderTopLeft.x ? ellipseTopLeft : shoulderTopLeft;
+    const topConnectorRight = ellipseTopRight.x > shoulderTopRight.x ? ellipseTopRight : shoulderTopRight;
+    const topConnectorLeft = ellipseTopLeft.x < shoulderTopLeft.x ? ellipseTopLeft : shoulderTopLeft;
 
-  const lowerArc = sampleEllipseArc(
-    projectStructure,
-    ribCage,
-    rightTopTheta,
-    leftTopTheta + Math.PI * 2,
-    32,
-    ribCageTiltRadians
-  );
+    const lowerArc = sampleEllipseArc(
+      projectStructure,
+      ribCage,
+      rightTopTheta,
+      leftTopTheta + Math.PI * 2,
+      32,
+      tiltRadians
+    );
 
-  const ribCageScreenCenter = projectStructure(ribCage.cx, ribCage.cy, ribCage.z);
-  // The splice below sorts by each point's *geometric* atan2 angle around
-  // ribCageScreenCenter, not the ellipse's parametric theta - those two angle
-  // systems diverge for rx != ry, so the unwrap reference has to be the arc's
-  // own first point's geometric angle, not rightTopTheta itself, or points
-  // near the seam can wrap the wrong way and sort to the wrong end.
-  const arcStartAngle = Math.atan2(
-    lowerArc[0].y - ribCageScreenCenter.y,
-    lowerArc[0].x - ribCageScreenCenter.x
-  );
-  const splicedLowerArc = spliceCornersIntoArc(
-    lowerArc,
-    [torsoBottomRight, torsoBottomLeft],
-    ribCageScreenCenter,
-    arcStartAngle
-  );
+    const ribCageScreenCenter = projectStructure(ribCage.cx, ribCage.cy, ribCage.z);
+    // The splice/trim below sorts by each point's *geometric* atan2 angle
+    // around ribCageScreenCenter, not the ellipse's parametric theta - those
+    // two angle systems diverge for rx != ry, so every unwrap reference has
+    // to be a geometric angle too, or points near the seam can wrap wrong.
+    const angleFromRibCageCenter = point => Math.atan2(
+      point.y - ribCageScreenCenter.y,
+      point.x - ribCageScreenCenter.x
+    );
+    const arcStartAngle = angleFromRibCageCenter(lowerArc[0]);
 
-  // When a side's top AND bottom trapezoid corners are both outside the
-  // ellipse, connect them with a straight edge instead of routing through
-  // the ellipse arc between them - the arc there would just cut back inward
-  // past where the direct edge already goes, producing a self-crossing lobe.
-  // Only applies when the shoulder (not the ellipse's own top point) is
-  // actually the winning top connector, since otherwise the outline isn't
-  // touching the shoulder corner at all on that side.
-  const rightBottomOutside = !isPointInPolygon(torsoBottomRight, ribCageGuide);
-  const leftBottomOutside = !isPointInPolygon(torsoBottomLeft, ribCageGuide);
-  const rightUsesDirectEdge = topConnectorRight === shoulderTopRight && rightBottomOutside;
-  const leftUsesDirectEdge = topConnectorLeft === shoulderTopLeft && leftBottomOutside;
+    // Whenever the shoulder corner (not the ellipse's own top point) wins as
+    // the connector, the boundary should follow the trapezoid's own straight
+    // side edge down to the bottom corner rather than routing through the
+    // ellipse arc between them - that arc would cut back inward past where
+    // the direct edge already goes, producing a self-crossing lobe. This
+    // applies whether or not the bottom corner itself is outside the ellipse
+    // (if it's inside, the straight edge just runs slightly into the
+    // ellipse's own silhouette right at that corner, a minor approximation
+    // preferable to a self-intersecting shape).
+    const rightUsesDirectEdge = topConnectorRight === shoulderTopRight;
+    const leftUsesDirectEdge = topConnectorLeft === shoulderTopLeft;
 
-  const rightBottomIndex = splicedLowerArc.indexOf(torsoBottomRight);
-  const leftBottomIndex = splicedLowerArc.indexOf(torsoBottomLeft);
-  const arcSliceStart = rightUsesDirectEdge && rightBottomIndex !== -1 ? rightBottomIndex + 1 : 0;
-  const arcSliceEnd = leftUsesDirectEdge && leftBottomIndex !== -1 ? leftBottomIndex : splicedLowerArc.length;
-  const trimmedLowerArc = splicedLowerArc.slice(arcSliceStart, arcSliceEnd);
+    // Only splice a bottom corner into the smooth arc route when its side
+    // ISN'T already using a direct edge - direct-edge sides add the corner
+    // as an explicit vertex below instead, then trim the arc to resume from
+    // its angular position.
+    const splicedLowerArc = spliceCornersIntoArc(
+      lowerArc,
+      [
+        ...(rightUsesDirectEdge ? [] : [torsoBottomRight]),
+        ...(leftUsesDirectEdge ? [] : [torsoBottomLeft])
+      ],
+      ribCageScreenCenter,
+      arcStartAngle
+    );
 
-  const torsoOutline = {
-    points: [
+    const findArcTrimIndex = (targetTheta, keepAfter) => {
+      const index = splicedLowerArc.findIndex(point => {
+        const theta = unwrapAngleFrom(angleFromRibCageCenter(point), arcStartAngle);
+        return keepAfter ? theta > targetTheta : theta >= targetTheta;
+      });
+
+      return index === -1 ? splicedLowerArc.length : index;
+    };
+
+    const arcSliceStart = rightUsesDirectEdge
+      ? findArcTrimIndex(unwrapAngleFrom(angleFromRibCageCenter(torsoBottomRight), arcStartAngle), true)
+      : 0;
+    const arcSliceEnd = leftUsesDirectEdge
+      ? findArcTrimIndex(unwrapAngleFrom(angleFromRibCageCenter(torsoBottomLeft), arcStartAngle), false)
+      : splicedLowerArc.length;
+    const trimmedLowerArc = splicedLowerArc.slice(arcSliceStart, arcSliceEnd);
+
+    return [
       neckTopLeft,
       neckTopRight,
       neckBottomRight,
@@ -1524,7 +1554,16 @@ function solveBody(params, pose, structure) {
       ...(leftUsesDirectEdge ? [torsoBottomLeft] : []),
       topConnectorLeft,
       neckBottomLeft
-    ],
+    ];
+  };
+
+  const tiltedOutlinePoints = buildTorsoOutlinePoints(ribCageTiltRadians);
+  const outlinePoints = ribCageTiltRadians !== 0 && polygonSelfIntersects(tiltedOutlinePoints)
+    ? buildTorsoOutlinePoints(0)
+    : tiltedOutlinePoints;
+
+  const torsoOutline = {
+    points: outlinePoints,
     fill: params.bodyColor,
     stroke: "black"
   };

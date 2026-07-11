@@ -28,7 +28,7 @@ export const defaultFeatureLandmarks = {
       { cx: 0.5945, cy: 0.5525, rx: 0.1845, ry: 0.1822 }
     ],
     nose: {
-      bridge: [-0.000, 1.0271],
+      bridge: [-0.000, 0.83],
       tip: [-0.0008, 1.0551],
       base: [0.1063, 1.0239]
     },
@@ -500,7 +500,6 @@ function solveFeatures(params, pose, structure) {
   const eyeScale = params.eyeSize / DEFAULTS.eyeSize;
   const eyeYOffset = params.eyeY - DEFAULTS.eyeY;
   const referenceEyes = spaceReferenceEyes(reference.eyes, params.eyeSpacing / DEFAULTS.eyeSpacing);
-  const noseYOffset = (params.noseLength - DEFAULTS.noseLength) * 0.45;
   const mouthScale = params.mouthWidth / DEFAULTS.mouthWidth;
 
   const eyes = [
@@ -508,19 +507,46 @@ function solveFeatures(params, pose, structure) {
     makeReferenceEye(projectStructure, structure.skull, pose.sign, referenceEyes[1], eyeScale, params, eyeYOffset, true, 1)
   ];
 
-  // Width scales the nose about its own bridge on X (grows in place, not shifting
-  // across the face at yaw). noseY translates the whole nose vertically (bridge
-  // included), while noseLength only drops the tip/nostrils for protrusion.
+  // Width and protrusion both scale an X offset from the bridge, but two
+  // different ones: width scales the nostril reference (base), which is what
+  // reads as "how wide the nose looks" head-on. Protrusion scales the tip's
+  // own offset from the bridge, which is what reads as "how far the nose
+  // pokes out" in 3/4 and side views. Keeping them on separate points means
+  // widening the nose no longer also pushes the tip out in profile. noseY
+  // translates the whole nose vertically as a rigid unit.
   const noseBridgeX = reference.nose.bridge[0];
-  const noseRef = point => [
+  const noseWidthRef = point => [
     noseBridgeX + (point[0] - noseBridgeX) * params.noseWidth,
     point[1]
   ];
-  const noseBase = noseRef(reference.nose.base);
-  const nostrils = makeNostrils(projectStructure, structure.skull, pose, noseBase, noseYOffset + params.noseY, params.noseWidth);
+  const noseProtrusionRef = point => [
+    noseBridgeX + (point[0] - noseBridgeX) * params.noseProtrusion,
+    point[1]
+  ];
+  // Length moves only the bridge point up/down - tip and nostrils don't move
+  // with it. Clamped so the bridge can never cross below the tip in any of
+  // the three landmark poses (front/threeQuarter/side): since the offset is
+  // a single constant applied the same way regardless of the current blended
+  // pose, and each pose's own bridge-tip gap is fixed by its landmark data,
+  // the binding constraint is whichever of the three poses has the smallest
+  // gap - satisfying that one guarantees every blended yaw in between stays
+  // safe too (the gap varies linearly with yaw between the three poses).
+  const NOSE_LENGTH_RATE = 0.45;
+  const NOSE_MIN_GAP_MARGIN = 2;
+  const noseLandmarks = params.featureLandmarks ?? defaultFeatureLandmarks;
+  const noseMinRawGap = Math.min(
+    noseLandmarks.front.nose.tip[1] - noseLandmarks.front.nose.bridge[1],
+    noseLandmarks.threeQuarter.nose.tip[1] - noseLandmarks.threeQuarter.nose.bridge[1],
+    noseLandmarks.side.nose.tip[1] - noseLandmarks.side.nose.bridge[1]
+  );
+  const noseMinGapAbs = noseMinRawGap * structure.skull.ry;
+  const noseRawBridgeOffset = (params.noseLength - DEFAULTS.noseLength) * NOSE_LENGTH_RATE;
+  const noseBridgeOffset = Math.max(noseRawBridgeOffset, NOSE_MIN_GAP_MARGIN - noseMinGapAbs);
+  const noseBase = noseWidthRef(reference.nose.base);
+  const nostrils = makeNostrils(projectStructure, structure.skull, pose, noseBase, params.noseY, params.noseWidth);
   const nose = {
-    bridge: projectReferencePoint(projectStructure, structure.skull, pose.sign, noseRef(reference.nose.bridge), 55, eyeYOffset * 0.55 + params.noseY),
-    tip: projectReferencePoint(projectStructure, structure.skull, pose.sign, noseRef(reference.nose.tip), 75, noseYOffset + params.noseY),
+    bridge: projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.bridge, 55, eyeYOffset * 0.55 + params.noseY - noseBridgeOffset),
+    tip: projectReferencePoint(projectStructure, structure.skull, pose.sign, noseProtrusionRef(reference.nose.tip), 75, params.noseY),
     leftNostril: nostrils.visible,
     rightNostril: nostrils.hidden
   };
@@ -543,7 +569,7 @@ function solveFeatures(params, pose, structure) {
   // Anchor the mouth vertically between the bottom of the nose and the chin,
   // then let mouthPosition slide it between those two points (0 = nose, 1 = chin).
   const skull = structure.skull;
-  const noseBottomY = skull.cy + noseBase[1] * skull.ry + noseYOffset + params.noseY;
+  const noseBottomY = skull.cy + noseBase[1] * skull.ry + params.noseY;
   const chinY = structure.lowerFaceBottomY;
   const targetMouthMidY = lerp(noseBottomY, chinY, params.mouthPosition);
   const mouthYShift = targetMouthMidY - (skull.cy + reference.mouth.mid[1] * skull.ry);

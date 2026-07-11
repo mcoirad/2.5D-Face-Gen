@@ -112,7 +112,7 @@ const controlGroups = [
   },
   {
     title: "Nose",
-    keys: ["noseLength", "noseY", "noseWidth"],
+    keys: ["noseLength", "noseY", "noseWidth", "noseProtrusion"],
     open: false
   },
   {

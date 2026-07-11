@@ -631,6 +631,9 @@ function createFaceIo() {
       <div class="face-io-row">
         <button type="button" id="face-copy">Copy current face JSON</button>
       </div>
+      <div class="face-io-row">
+        <button type="button" id="face-download-svg">Download SVG</button>
+      </div>
       <div class="face-io-status" id="face-io-status" aria-live="polite"></div>
     </div>
   `;
@@ -691,6 +694,11 @@ function createFaceIo() {
     }
   });
 
+  panel.querySelector("#face-download-svg").addEventListener("click", () => {
+    downloadSvg();
+    status.textContent = "Downloaded SVG.";
+  });
+
   panel.querySelector("#face-import").addEventListener("click", () => {
     importFile.click();
   });
@@ -721,6 +729,31 @@ function createFaceIo() {
   });
 
   renderFaceList(list);
+}
+
+function downloadSvg() {
+  const svgEl = stage.querySelector("svg");
+
+  if (!svgEl) {
+    return;
+  }
+
+  const clone = svgEl.cloneNode(true);
+
+  if (!clone.getAttribute("xmlns")) {
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  }
+
+  const blob = new Blob([clone.outerHTML], { type: "image/svg+xml" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = `test-face-${new Date().toISOString().slice(0, 10)}.svg`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function exportFacesJson() {

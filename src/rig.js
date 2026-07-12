@@ -127,16 +127,27 @@ export const defaultOutlineLandmarks = {
 };
 
 // Authored for the screen-right shoulder (shoulders[1] / shoulderTopRight /
-// neckBottomRight). The screen-left shoulder mirrors via 180 - angle about
-// its own circle center - exact for a circle, and independent of yaw since
-// each shoulder's circle already carries yaw via orbitPoint.
-// angle2 = inner point (neck side), angle3 = outer/lateral point. Both sit
+// neckBottomRight). The screen-left shoulder mirrors via 180 - angle (and a
+// flipped offsetX) about its own circle center - exact for a circle, and
+// independent of yaw since each shoulder's circle already carries yaw via
+// orbitPoint.
+// point2 = inner point (neck side), point3 = outer/lateral point. Both sit
 // in the upper hemisphere (negative sin) since pauldrons cap the shoulder
-// top. Placeholders - tune by eye.
+// top. offsetX/offsetY are additive screen-space px nudges applied after the
+// angle+radius placement, same convention as pauldronYOffset. Tune by eye.
 export const defaultPauldronLandmarks = {
-  front: { angle2: -220, angle3: -20 },
-  threeQuarter: { angle2: -200, angle3: -15 },
-  side: { angle2: -195, angle3: -0 }
+  front: {
+    point2: { angle: -220, offsetX: 0, offsetY: 0 },
+    point3: { angle: -20, offsetX: 0, offsetY: 0 }
+  },
+  threeQuarter: {
+    point2: { angle: -200, offsetX: 0, offsetY: 0 },
+    point3: { angle: -15, offsetX: 0, offsetY: 0 }
+  },
+  side: {
+    point2: { angle: -195, offsetX: -0, offsetY: 0 },
+    point3: { angle: -0, offsetX: 10, offsetY: 10 }
+  }
 };
 
 const HAIR_MIRROR_GUIDES = [4, 3, 2, 1, 0, 7, 6, 5];
@@ -1338,25 +1349,43 @@ function interpolatePauldronLandmarks(pauldronLandmarks, amount) {
 
 function blendPauldronLandmarks(fromPose, toPose, amount) {
   return {
-    angle2: lerp(fromPose.angle2, toPose.angle2, amount),
-    angle3: lerp(fromPose.angle3, toPose.angle3, amount)
+    point2: blendPauldronPoint(fromPose.point2, toPose.point2, amount),
+    point3: blendPauldronPoint(fromPose.point3, toPose.point3, amount)
+  };
+}
+
+function blendPauldronPoint(fromPoint, toPoint, amount) {
+  return {
+    angle: lerp(fromPoint.angle, toPoint.angle, amount),
+    offsetX: lerp(fromPoint.offsetX, toPoint.offsetX, amount),
+    offsetY: lerp(fromPoint.offsetY, toPoint.offsetY, amount)
   };
 }
 
 function mirrorPauldronReference(reference) {
-  return { angle2: 180 - reference.angle2, angle3: 180 - reference.angle3 };
+  return {
+    point2: mirrorPauldronPoint(reference.point2),
+    point3: mirrorPauldronPoint(reference.point3)
+  };
+}
+
+// offsetX flips with the angle reflection (mirrors left/right); offsetY
+// doesn't, since it's a vertical nudge and mirroring is across a vertical axis.
+function mirrorPauldronPoint(point) {
+  return { angle: 180 - point.angle, offsetX: -point.offsetX, offsetY: point.offsetY };
 }
 
 // shoulders[i].{cx,cy,r} are already fully-projected screen-space values (see
 // createStructureProjector - no perspective scaling, scale is always 1), so
 // this is a plain 2D circle formula with no pose.sign/yaw term - the yaw
-// rotation already happened via orbitPoint to produce cx/cy.
-function shoulderPolarPoint(shoulder, angleDegrees) {
-  const theta = angleDegrees * Math.PI / 180;
+// rotation already happened via orbitPoint to produce cx/cy. offsetX/offsetY
+// are additive screen-space px nudges applied after the angle+radius placement.
+function shoulderPolarPoint(shoulder, point) {
+  const theta = point.angle * Math.PI / 180;
 
   return {
-    x: shoulder.cx + Math.cos(theta) * shoulder.r,
-    y: shoulder.cy + Math.sin(theta) * shoulder.r
+    x: shoulder.cx + Math.cos(theta) * shoulder.r + point.offsetX,
+    y: shoulder.cy + Math.sin(theta) * shoulder.r + point.offsetY
   };
 }
 
@@ -1368,6 +1397,7 @@ function solveBody(params, pose, structure) {
   if (!params.showBody) {
     return {
       torsoOutline: null,
+      ribCageShape: null,
       shoulders: [],
       landmarks: {},
       ribCageGuide: [],
@@ -1614,10 +1644,35 @@ function solveBody(params, pose, structure) {
     ];
   };
 
-  const tiltedOutlinePoints = buildTorsoOutlinePoints(ribCageTiltRadians);
-  const outlinePoints = ribCageTiltRadians !== 0 && polygonSelfIntersects(tiltedOutlinePoints)
-    ? buildTorsoOutlinePoints(0)
-    : tiltedOutlinePoints;
+  // ribCageSeparate lets the ellipse union above be A/B tested against the
+  // plain pre-union trapezoid: when on, the torso outline reverts to the
+  // simple neck+trapezoid (straight edges, no ellipse involvement at all)
+  // and the ellipse instead renders as its own solid overlapping shape.
+  let outlinePoints;
+  let ribCageShape = null;
+
+  if (params.ribCageSeparate) {
+    outlinePoints = [
+      neckTopLeft,
+      neckTopRight,
+      neckBottomRight,
+      shoulderTopRight,
+      torsoBottomRight,
+      torsoBottomLeft,
+      shoulderTopLeft,
+      neckBottomLeft
+    ];
+    ribCageShape = {
+      points: ribCageGuide,
+      fill: params.bodyColor,
+      stroke: "black"
+    };
+  } else {
+    const tiltedOutlinePoints = buildTorsoOutlinePoints(ribCageTiltRadians);
+    outlinePoints = ribCageTiltRadians !== 0 && polygonSelfIntersects(tiltedOutlinePoints)
+      ? buildTorsoOutlinePoints(0)
+      : tiltedOutlinePoints;
+  }
 
   const torsoOutline = {
     points: outlinePoints,
@@ -1627,6 +1682,7 @@ function solveBody(params, pose, structure) {
 
   return {
     torsoOutline,
+    ribCageShape,
     shoulders,
     landmarks,
     ribCageGuide,
@@ -1645,23 +1701,47 @@ function solveArmor(params, pose, structure, body) {
   const pauldronReference = interpolatePauldronLandmarks(defaultPauldronLandmarks, pose.amount);
   const mirroredReference = mirrorPauldronReference(pauldronReference);
 
-  const buildPauldron = (shoulder, shoulderTop, neckBottom, reference) => ({
-    points: [
-      {
-        x: lerp(shoulderTop.x, neckBottom.x, params.pauldronPosition),
-        y: lerp(shoulderTop.y, neckBottom.y, params.pauldronPosition) + params.pauldronYOffset
-      },
-      shoulderPolarPoint(shoulder, reference.angle2),
-      shoulderPolarPoint(shoulder, reference.angle3)
-    ],
-    fill: params.armorColor,
-    stroke: "black",
-    curve: params.pauldronCurve
-  });
+  // As yaw swings a shoulder toward the far/back side, the pauldron's own
+  // anchor point (point1, on the shoulder-to-neck line) or its inner shoulder
+  // point (point2 - authored as the neck-side point) can cross inward past
+  // that side's neck-bottom corner - past that point the shoulder has
+  // rotated behind the torso, so the pauldron should draw behind it too
+  // instead of floating on top. Checking both, not just point1, matters
+  // because point2 sits on the shoulder circle at its own authored angle and
+  // can cross before or after the shoulder-to-neck lerp point does; point3
+  // is the outer/lateral point and by design moves away from the neck, so
+  // it's not part of this check. mirror=true (left side) flips which
+  // direction counts as "inward" (right side, toward the anchor's left).
+  //
+  // Only the actual far shoulder for this yaw direction is eligible to flip
+  // - at extreme yaw both shoulders' orbit converges back toward center
+  // (true profile: near and far shoulder visually coincide), so the x-cross
+  // alone would trigger on both sides at once. orbitPoint's guideAngle
+  // (baseAngle - yaw * PI/2) puts the right shoulder (+SHOULDER_BASE_ANGLE)
+  // nearer as yaw goes positive and the left shoulder nearer as yaw goes
+  // negative, matching pose.sign - so gate eligibility on that.
+  const buildPauldron = (shoulder, shoulderTop, neckBottom, reference, mirror, isFarSide) => {
+    const point1 = {
+      x: lerp(shoulderTop.x, neckBottom.x, params.pauldronPosition),
+      y: lerp(shoulderTop.y, neckBottom.y, params.pauldronPosition) + params.pauldronYOffset
+    };
+    const point2 = shoulderPolarPoint(shoulder, reference.point2);
+    const point3 = shoulderPolarPoint(shoulder, reference.point3);
+    const isInward = point => (mirror ? point.x > neckBottom.x : point.x < neckBottom.x);
+    const crossedInward = isInward(point1) || isInward(point2);
+
+    return {
+      points: [point1, point2, point3],
+      fill: params.armorColor,
+      stroke: "black",
+      curve: params.pauldronCurve,
+      behindTorso: isFarSide && crossedInward
+    };
+  };
 
   return {
-    pauldronLeft: buildPauldron(body.shoulders[0], body.shoulderTopLeft, body.neckBottomLeft, mirroredReference),
-    pauldronRight: buildPauldron(body.shoulders[1], body.shoulderTopRight, body.neckBottomRight, pauldronReference)
+    pauldronLeft: buildPauldron(body.shoulders[0], body.shoulderTopLeft, body.neckBottomLeft, mirroredReference, true, pose.sign > 0),
+    pauldronRight: buildPauldron(body.shoulders[1], body.shoulderTopRight, body.neckBottomRight, pauldronReference, false, pose.sign < 0)
   };
 }
 

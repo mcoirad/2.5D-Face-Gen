@@ -4,10 +4,11 @@ export function renderFaceSvg(rig) {
   const headPathD = getHeadOutlinePathD(rig.head, rig.faceRoundness);
 
   return `
-    <svg viewBox="0 0 700 700" role="img" aria-label="2.5D anime face preview">
+    <svg viewBox="0 0 500 500" role="img" aria-label="2.5D anime face preview">
       ${rig.removeStrokes ? renderRemoveStrokesStyle() : ""}
+      ${renderArmor(rig.armor, true)}
       ${renderBody(rig.body, rig.showGuides)}
-      ${renderArmor(rig.armor)}
+      ${renderArmor(rig.armor, false)}
       ${renderHelmetLayers(rig.helmet?.back)}
       ${renderHair(rig.hair, "back")}
       ${renderHairV2(rig.hairV2, "back")}
@@ -40,6 +41,7 @@ function renderBody(body, showGuides) {
   }
 
   return `
+    ${body.ribCageShape ? renderBodyShape(body.ribCageShape) : ""}
     ${renderBodyShape(body.torsoOutline)}
     ${body.shoulders.map(renderShoulderGuide).join("")}
     ${showGuides && body.ribCageGuide ? renderGuidePath(body.ribCageGuide) : ""}
@@ -47,15 +49,18 @@ function renderBody(body, showGuides) {
   `;
 }
 
-function renderArmor(armor) {
+// Split into two passes (called once with behind=true before renderBody,
+// once with behind=false after) so a pauldron whose shoulder has rotated
+// behind the torso draws under it instead of floating on top.
+function renderArmor(armor, behind) {
   if (!armor) {
     return "";
   }
 
-  return `
-    ${armor.pauldronLeft ? renderCurvedShape(armor.pauldronLeft) : ""}
-    ${armor.pauldronRight ? renderCurvedShape(armor.pauldronRight) : ""}
-  `;
+  return [armor.pauldronLeft, armor.pauldronRight]
+    .filter(pauldron => pauldron && !!pauldron.behindTorso === behind)
+    .map(renderCurvedShape)
+    .join("");
 }
 
 // Same shape as renderBodyShape, but every edge bulges by shape.curve px via

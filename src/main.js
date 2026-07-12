@@ -75,7 +75,8 @@ const controlGroups = [
       "ribCageHeight",
       "ribCageY",
       "ribCageTilt",
-      "ribCageTopConnectorAngle"
+      "ribCageTopConnectorAngle",
+      "ribCageSeparate"
     ],
     open: false
   },

@@ -146,7 +146,7 @@ export const defaultPauldronLandmarks = {
   },
   side: {
     point2: { angle: -195, offsetX: -0, offsetY: 0 },
-    point3: { angle: -0, offsetX: 10, offsetY: 10 }
+    point3: { angle: -0, offsetX: 30, offsetY: 10 }
   }
 };
 
@@ -543,6 +543,50 @@ function orientation(a, b, c) {
   return Math.sign((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
 }
 
+function segmentIntersectionPoint(a, b, c, d) {
+  const denom = (b.x - a.x) * (d.y - c.y) - (b.y - a.y) * (d.x - c.x);
+
+  if (denom === 0) {
+    return null;
+  }
+
+  const t = ((c.x - a.x) * (d.y - c.y) - (c.y - a.y) * (d.x - c.x)) / denom;
+
+  return { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) };
+}
+
+// Finds where segment a->b first crosses a closed polygon's boundary,
+// walking from a's side (returns the crossing closest to a) - used to clip
+// an edge at the ellipse boundary instead of letting it run into the interior.
+function firstSegmentPolygonCrossing(a, b, polygon) {
+  let closest = null;
+  let closestDistSq = Infinity;
+
+  for (let i = 0; i < polygon.length; i += 1) {
+    const c = polygon[i];
+    const d = polygon[(i + 1) % polygon.length];
+
+    if (!segmentsIntersect(a, b, c, d)) {
+      continue;
+    }
+
+    const point = segmentIntersectionPoint(a, b, c, d);
+
+    if (!point) {
+      continue;
+    }
+
+    const distSq = (point.x - a.x) ** 2 + (point.y - a.y) ** 2;
+
+    if (distSq < closestDistSq) {
+      closestDistSq = distSq;
+      closest = point;
+    }
+  }
+
+  return closest;
+}
+
 function solveFeatures(params, pose, structure) {
   const projectStructure = createStructureProjector(params);
   const reference = structure.reference;
@@ -609,10 +653,10 @@ function solveFeatures(params, pose, structure) {
     pose.sign * referenceEyes[0].cx * structure.skull.rx,
     pose.sign * referenceEyes[1].cx * structure.skull.rx
   ];
-  const browTiltDirections = browX[0] <= browX[1] ? [-1, 1] : [1, -1];
+  const browFill = resolveHairColor(params, params.showHairV2 ? "hairV2Color" : "hairColor").fill;
   const brows = [
-    makeBrow(projectStructure, pose.sign, browX[0], browY, params.eyeTilt, 1, featureVisibility[0], browTiltDirections[0]),
-    makeBrow(projectStructure, -pose.sign, browX[1], browY, params.eyeTilt, 1, featureVisibility[1], browTiltDirections[1])
+    makeBrow(projectStructure, browX[0], browY, params, featureVisibility[0], -1, pose.sign, eyes[0], browFill),
+    makeBrow(projectStructure, browX[1], browY, params, featureVisibility[1], 1, pose.sign, eyes[1], browFill)
   ];
 
   // Anchor the mouth vertically between the bottom of the nose and the chin,
@@ -1590,18 +1634,33 @@ function solveBody(params, pose, structure) {
 
     // Whenever the shoulder corner (not the ellipse's own top point) wins as
     // the connector, the boundary should follow the trapezoid's own straight
-    // side edge down to the bottom corner rather than routing through the
-    // ellipse arc between them - that arc would cut back inward past where
-    // the direct edge already goes, producing a self-crossing lobe. This
-    // applies whether or not the bottom corner itself is outside the ellipse
-    // (if it's inside, the straight edge just runs slightly into the
-    // ellipse's own silhouette right at that corner, a minor approximation
-    // preferable to a self-intersecting shape).
+    // side edge down toward the bottom corner rather than routing through
+    // the ellipse arc between them - that arc would cut back inward past
+    // where the direct edge already goes, producing a self-crossing lobe.
     const rightUsesDirectEdge = topConnectorRight === shoulderTopRight;
     const leftUsesDirectEdge = topConnectorLeft === shoulderTopLeft;
 
+    // If the bottom corner is itself outside the ellipse, the direct edge
+    // can go straight to it (both ends legitimately outside). If it's
+    // INSIDE, going all the way to it would plow straight through the
+    // ellipse's interior (a real bug - the edge is supposed to stop at the
+    // ellipse boundary, not at the corner) - so clip the shoulder-to-corner
+    // segment against the sampled ellipse polygon instead and pivot there.
+    // Falls back to the corner itself only in the degenerate case where no
+    // crossing is found (e.g. the whole segment is already inside).
+    const findPivot = (shoulderTop, bottomCorner) => {
+      if (!isPointInPolygon(bottomCorner, ribCageGuide)) {
+        return bottomCorner;
+      }
+
+      return firstSegmentPolygonCrossing(shoulderTop, bottomCorner, ribCageGuide) ?? bottomCorner;
+    };
+
+    const rightPivot = rightUsesDirectEdge ? findPivot(shoulderTopRight, torsoBottomRight) : null;
+    const leftPivot = leftUsesDirectEdge ? findPivot(shoulderTopLeft, torsoBottomLeft) : null;
+
     // Only splice a bottom corner into the smooth arc route when its side
-    // ISN'T already using a direct edge - direct-edge sides add the corner
+    // ISN'T already using a direct edge - direct-edge sides add their pivot
     // as an explicit vertex below instead, then trim the arc to resume from
     // its angular position.
     const splicedLowerArc = spliceCornersIntoArc(
@@ -1624,10 +1683,10 @@ function solveBody(params, pose, structure) {
     };
 
     const arcSliceStart = rightUsesDirectEdge
-      ? findArcTrimIndex(unwrapAngleFrom(angleFromRibCageCenter(torsoBottomRight), arcStartAngle), true)
+      ? findArcTrimIndex(unwrapAngleFrom(angleFromRibCageCenter(rightPivot), arcStartAngle), true)
       : 0;
     const arcSliceEnd = leftUsesDirectEdge
-      ? findArcTrimIndex(unwrapAngleFrom(angleFromRibCageCenter(torsoBottomLeft), arcStartAngle), false)
+      ? findArcTrimIndex(unwrapAngleFrom(angleFromRibCageCenter(leftPivot), arcStartAngle), false)
       : splicedLowerArc.length;
     const trimmedLowerArc = splicedLowerArc.slice(arcSliceStart, arcSliceEnd);
 
@@ -1636,9 +1695,9 @@ function solveBody(params, pose, structure) {
       neckTopRight,
       neckBottomRight,
       topConnectorRight,
-      ...(rightUsesDirectEdge ? [torsoBottomRight] : []),
+      ...(rightUsesDirectEdge ? [rightPivot] : []),
       ...trimmedLowerArc,
-      ...(leftUsesDirectEdge ? [torsoBottomLeft] : []),
+      ...(leftUsesDirectEdge ? [leftPivot] : []),
       topConnectorLeft,
       neckBottomLeft
     ];
@@ -2381,15 +2440,65 @@ function makeEye(project, side, x, y, size, widthScale, visible) {
   };
 }
 
-function makeBrow(project, side, x, y, tilt, widthScale, visible, tiltDirection) {
-  const halfWidth = 20 * widthScale;
+function makeBrow(project, x, y, params, visible, anatomicalSide, poseSignValue, eye, fillColor) {
+  const halfWidth = 20;
+  const baseHalfHeight = Math.max(0.5, params.eyebrowHeight / 2);
+  const sharpen = clamp(params.eyebrowSharpen, -1, 1);
+  const halfInnerHeight = Math.max(0, baseHalfHeight * (sharpen < 0 ? 1 + sharpen : 1));
+  const halfOuterHeight = Math.max(0, baseHalfHeight * (sharpen > 0 ? 1 - sharpen : 1));
+  const tilt = params.eyebrowTilt;
+  const curveOffset = params.eyebrowCurve * halfWidth * 0.65;
+  const outwardSign = anatomicalSide * poseSignValue;
+  const browY = y + params.eyebrowY;
+  const centerlineY = localX => -tilt * 20 * (localX / halfWidth);
+  const innerX = -halfWidth;
+  const outerX = halfWidth;
+  const localPoints = {
+    topInner: { x: innerX, y: centerlineY(innerX) - halfInnerHeight },
+    topOuter: { x: outerX, y: centerlineY(outerX) - halfOuterHeight },
+    bottomOuter: { x: outerX, y: centerlineY(outerX) + halfOuterHeight },
+    bottomInner: { x: innerX, y: centerlineY(innerX) + halfInnerHeight }
+  };
+  const topMidY = (localPoints.topInner.y + localPoints.topOuter.y) / 2;
+  const bottomMidY = (localPoints.bottomInner.y + localPoints.bottomOuter.y) / 2;
 
-  return {
-    side,
-    start: project(x - halfWidth, y + tilt * 20 * tiltDirection, 35),
-    end: project(x + halfWidth, y - tilt * 20 * tiltDirection, 35),
+  localPoints.topControl = { x: 0, y: topMidY - curveOffset };
+  localPoints.bottomControl = { x: 0, y: bottomMidY - curveOffset };
+
+  const place = local => project(
+    x + local.x * outwardSign,
+    browY + local.y,
+    35
+  );
+  const brow = {
+    side: anatomicalSide,
+    topInner: place(localPoints.topInner),
+    topOuter: place(localPoints.topOuter),
+    bottomOuter: place(localPoints.bottomOuter),
+    bottomInner: place(localPoints.bottomInner),
+    topControl: place(localPoints.topControl),
+    bottomControl: place(localPoints.bottomControl),
+    fillColor,
+    strokeVisible: Boolean(params.showEyebrowStroke),
     visible
   };
+  const eyeTopY = Math.min(eye.quad.topInner.y, eye.quad.topOuter.y, eye.quad.topControl.y) + 10;
+  const browBottomY = Math.max(brow.bottomInner.y, brow.bottomOuter.y, brow.bottomControl.y);
+
+  if (browBottomY > eyeTopY) {
+    shiftBrowY(brow, eyeTopY - browBottomY);
+  }
+
+  return brow;
+}
+
+function shiftBrowY(brow, amount) {
+  for (const key of ["topInner", "topOuter", "bottomOuter", "bottomInner", "topControl", "bottomControl"]) {
+    brow[key] = {
+      ...brow[key],
+      y: brow[key].y + amount
+    };
+  }
 }
 
 function solveVisibility(amount) {

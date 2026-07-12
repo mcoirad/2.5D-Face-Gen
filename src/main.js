@@ -114,7 +114,6 @@ const controlGroups = [
       "eyeSize",
       "eyeUpperOpen",
       "eyeLowerOpen",
-      "eyeTilt",
       "eyeTopCurve",
       "eyeBottomCurve",
       "eyeTrapezoid",
@@ -139,6 +138,18 @@ const controlGroups = [
       "eyeCornerExtend",
       "eyeCornerTopCurve",
       "eyeCornerBottomCurve"
+    ],
+    open: true
+  },
+  {
+    title: "Eyebrows",
+    keys: [
+      "eyebrowTilt",
+      "eyebrowY",
+      "eyebrowHeight",
+      "eyebrowCurve",
+      "eyebrowSharpen",
+      "showEyebrowStroke"
     ],
     open: true
   },
@@ -620,14 +631,22 @@ function rebuildLandmarkControls() {
 }
 
 function applyParams(snapshot) {
+  const migratedSnapshot = {
+    ...snapshot
+  };
+
+  if (snapshot.eyebrowTilt !== undefined || snapshot.eyeTilt !== undefined) {
+    migratedSnapshot.eyebrowTilt = snapshot.eyebrowTilt ?? snapshot.eyeTilt;
+  }
+
   const restored = {
     ...defaultParams,
-    ...snapshot,
-    outlineLandmarks: snapshot.outlineLandmarks
-      ? structuredClone(snapshot.outlineLandmarks)
+    ...migratedSnapshot,
+    outlineLandmarks: migratedSnapshot.outlineLandmarks
+      ? structuredClone(migratedSnapshot.outlineLandmarks)
       : structuredClone(defaultOutlineLandmarks),
-    featureLandmarks: snapshot.featureLandmarks
-      ? structuredClone(snapshot.featureLandmarks)
+    featureLandmarks: migratedSnapshot.featureLandmarks
+      ? structuredClone(migratedSnapshot.featureLandmarks)
       : structuredClone(defaultFeatureLandmarks)
   };
 

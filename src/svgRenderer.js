@@ -19,8 +19,8 @@ export function renderFaceSvg(rig) {
       ${renderHair(rig.hair, "front")}
       ${renderHairV2(rig.hairV2, "front")}
       ${renderHelmetLayers(rig.helmet?.front)}
-      ${rig.features.brows.map(renderBrow).join("")}
       ${rig.features.eyes.map(renderEye).join("")}
+      ${rig.features.brows.map(renderBrow).join("")}
     </svg>
   `;
 }
@@ -567,13 +567,22 @@ function renderBrow(brow) {
     return "";
   }
 
+  const stroke = brow.strokeVisible ? "black" : "none";
+  const strokeWidth = brow.strokeVisible ? 2.5 : 0;
+
   return `
     <path
-      d="M ${brow.start.x} ${brow.start.y} L ${brow.end.x} ${brow.end.y}"
-      fill="none"
-      stroke="black"
-      stroke-width="4"
-      stroke-linecap="round"
+      d="
+        M ${brow.topInner.x} ${brow.topInner.y}
+        Q ${brow.topControl.x} ${brow.topControl.y} ${brow.topOuter.x} ${brow.topOuter.y}
+        L ${brow.bottomOuter.x} ${brow.bottomOuter.y}
+        Q ${brow.bottomControl.x} ${brow.bottomControl.y} ${brow.bottomInner.x} ${brow.bottomInner.y}
+        Z
+      "
+      fill="${brow.fillColor}"
+      stroke="${stroke}"
+      stroke-width="${strokeWidth}"
+      stroke-linejoin="round"
     />
   `;
 }

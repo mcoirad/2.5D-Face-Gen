@@ -137,8 +137,8 @@ export const defaultOutlineLandmarks = {
 // angle+radius placement, same convention as pauldronYOffset. Tune by eye.
 export const defaultPauldronLandmarks = {
   front: {
-    point2: { angle: -220, offsetX: 0, offsetY: 0 },
-    point3: { angle: -20, offsetX: 0, offsetY: 0 }
+    point2: { angle: -220, offsetX: 0, offsetY: 10 },
+    point3: { angle: -20, offsetX: 10, offsetY: 0 }
   },
   threeQuarter: {
     point2: { angle: -200, offsetX: 0, offsetY: 0 },

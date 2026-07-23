@@ -74,9 +74,9 @@ export const defaultFeatureLandmarks = {
       { cx: -0.5053, cy: 0.5575, rx: 0.1845, ry: 0.1822 }
     ],
     nose: {
-      bridge: [-1.0627+ 0.05, 0.6257],
-      tip: [-1.2257 + 0.05, 0.8647],
-      base: [-1.1313+ 0.05, 1.04]
+      bridge: [-1.0627+ 0.05, 0.6257 + 0.05],
+      tip: [-1.2257 + 0.05, 0.8647+ 0.05],
+      base: [-1.1313+ 0.05, 1.04+ 0.05]
     },
     mouth: {
       left: [-1.0353+ 0.05 , 1.1194],
@@ -157,6 +157,7 @@ export const OUTLINE_UPPER_ARC_POINT_COUNT = 19;
 // preceding lower-face point into a strong inward notch, drop that lower point
 // and retry. This keeps nose landmarks available while removing bad connectors.
 const PROFILE_LOWER_CONCAVITY_LIMIT = 60 * Math.PI / 180;
+const PROFILE_EYE_SPACING_SHIFT = 0.24;
 
 export function solveFaceRig(params) {
   const yaw = clamp(params.yaw, -1, 1);
@@ -183,6 +184,7 @@ export function solveFaceRig(params) {
     showHelmet: params.showHelmet,
     faceRoundness: params.faceRoundness,
     clipMouthToFace: params.clipMouthToFace,
+    skinColor: params.skinColor,
     pose: {
       ...pose,
       turn,
@@ -193,6 +195,7 @@ export function solveFaceRig(params) {
     hairV2: params.showHairV2 ? solveHairV2(params, pose, head.structure) : null,
     body,
     armor: solveArmor(params, pose, head.structure, body),
+    ears: params.showEars ? solveEars(params, pose, head.structure, features, head.outline) : null,
     helmet: solveHelmet(params, pose, head.structure, features),
     features,
     visibility: solveVisibility(pose.amount)
@@ -592,7 +595,7 @@ function solveFeatures(params, pose, structure) {
   const reference = structure.reference;
   const eyeScale = params.eyeSize / DEFAULTS.eyeSize;
   const eyeYOffset = params.eyeY - DEFAULTS.eyeY;
-  const referenceEyes = spaceReferenceEyes(reference.eyes, params.eyeSpacing / DEFAULTS.eyeSpacing);
+  const referenceEyes = spaceReferenceEyes(reference.eyes, params.eyeSpacing / DEFAULTS.eyeSpacing, pose.amount);
   const mouthScale = params.mouthWidth / DEFAULTS.mouthWidth;
 
   const eyes = [
@@ -1305,12 +1308,13 @@ export function seededRandom(index, salt) {
   return value - Math.floor(value);
 }
 
-function spaceReferenceEyes(referenceEyes, spacingScale) {
+function spaceReferenceEyes(referenceEyes, spacingScale, poseAmount) {
   const midpoint = (referenceEyes[0].cx + referenceEyes[1].cx) / 2;
+  const profileShift = smoothstep(0.5, 1, poseAmount) * (spacingScale - 1) * PROFILE_EYE_SPACING_SHIFT;
 
   return referenceEyes.map(eye => ({
     ...eye,
-    cx: midpoint + (eye.cx - midpoint) * spacingScale
+    cx: midpoint + (eye.cx - midpoint) * spacingScale + profileShift
   }));
 }
 
@@ -1802,6 +1806,102 @@ function solveArmor(params, pose, structure, body) {
     pauldronLeft: buildPauldron(body.shoulders[0], body.shoulderTopLeft, body.neckBottomLeft, mirroredReference, true, pose.sign > 0),
     pauldronRight: buildPauldron(body.shoulders[1], body.shoulderTopRight, body.neckBottomRight, pauldronReference, false, pose.sign < 0)
   };
+}
+
+// Each ear is a three-point polygon: a straight, unstroked edge attached to the
+// side of the face (top at the eye line, bottom at the nose tip) plus an outward
+// apex. The attach points sit exactly where those Y lines cross the actual head
+// outline, so the ear roots on the face contour and rides it as the outline
+// reshapes with yaw and pitch. The near side (opposite the nose) fills out with
+// the turn while the far side collapses; and once the head has turned past a
+// threshold both ears drop behind the head in the draw order.
+const EAR_BEHIND_YAW = 0.3;
+
+function solveEars(params, pose, structure, features, outline) {
+  const skull = structure.skull;
+  const lowerFace = structure.lowerFace;
+
+  // Vertical anchors taken directly from the already-projected features, so the
+  // attach edge is exactly eye-line to nose-tip.
+  const topY = (features.eyes[0].center.y + features.eyes[1].center.y) / 2;
+  const bottomY = features.nose.tip.y;
+  const edgeH = Math.max(20, bottomY - topY);
+  const apexY = topY - edgeH * 0.4;
+
+  const frontWidth = 1 - params.earFlatten;
+
+  // Cheat: once the head has clearly turned, drop both ears behind the head so
+  // they read as attached to the side/back of the head rather than floating over
+  // the face, instead of trying to layer each ear individually.
+  const layer = pose.amount > EAR_BEHIND_YAW ? "back" : "front";
+
+  const buildEar = screenSide => {
+    // Attach where each Y line crosses the real face outline (falling back to the
+    // head ellipse if it somehow misses), so the roots land on the contour and
+    // move with it under yaw/pitch.
+    const topX = outlineEdgeX(outline, topY, screenSide)
+      ?? (250 + screenSide * headHalfWidthAtY(skull, lowerFace, topY - 250));
+    const bottomX = outlineEdgeX(outline, bottomY, screenSide)
+      ?? (250 + screenSide * headHalfWidthAtY(skull, lowerFace, bottomY - 250));
+
+    // Near side (opposite the nose = back of head) fills out with the turn; the
+    // far side collapses so it never pokes past the head. earFlatten (0..1) =
+    // how much flatter the ears are head-on.
+    const faces = screenSide * pose.sign;               // +1 near, -1 far
+    const width = faces > 0
+      ? frontWidth + pose.amount * (1 - frontWidth)
+      : frontWidth * (1 - pose.amount);
+    const apexOut = params.earStickOut * width;
+
+    return {
+      topAttach: { x: topX, y: topY },
+      bottomAttach: { x: bottomX, y: bottomY },
+      apex: { x: topX + screenSide * apexOut, y: apexY },
+      curve: params.earCurve,
+      fill: params.skinColor,
+      layer
+    };
+  };
+
+  return { left: buildEar(-1), right: buildEar(1) };
+}
+
+// X where the horizontal line at `y` crosses the outline polygon, on the given
+// side (+1 = rightmost crossing, -1 = leftmost). Returns null if it misses.
+function outlineEdgeX(outline, y, side) {
+  let best = null;
+
+  for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
+    const a = outline[j];
+    const b = outline[i];
+
+    if ((a.y > y) !== (b.y > y)) {
+      const x = a.x + (b.x - a.x) * (y - a.y) / (b.y - a.y);
+
+      if (best === null || (side > 0 ? x > best : x < best)) {
+        best = x;
+      }
+    }
+  }
+
+  return best;
+}
+
+// Half-width of the head silhouette at model Y - the wider of the skull ellipse
+// and the lower-face ellipse. modelY is screen Y minus the 250 origin. Only used
+// as a fallback when a Y line misses the outline.
+function headHalfWidthAtY(skull, lowerFace, modelY) {
+  return Math.max(ellipseHalfWidthAtY(skull, modelY), ellipseHalfWidthAtY(lowerFace, modelY));
+}
+
+function ellipseHalfWidthAtY(ellipse, modelY) {
+  const t = (modelY - ellipse.cy) / ellipse.ry;
+
+  if (Math.abs(t) >= 1) {
+    return 0;
+  }
+
+  return ellipse.rx * Math.sqrt(1 - t * t);
 }
 
 // Inserts `corners` into `arcPoints` (an already-ordered, non-wrapping walk of

@@ -10,9 +10,11 @@ export function renderFaceSvg(rig) {
       ${renderBody(rig.body, rig.showGuides)}
       ${renderArmor(rig.armor, false)}
       ${renderHelmetLayers(rig.helmet?.back)}
+      ${renderEars(rig.ears, "back")}
       ${renderHair(rig.hair, "back")}
       ${renderHairV2(rig.hairV2, "back")}
-      ${renderHead(headPathD)}
+      ${renderHead(headPathD, rig.skinColor)}
+      ${renderEars(rig.ears, "front")}
       ${rig.showGuides ? renderGuides(rig.head.guides) : ""}
       ${renderNose(rig.features.nose)}
       ${renderMouth(rig.features.mouth, headPathD, rig.clipMouthToFace)}
@@ -195,16 +197,78 @@ function getHeadOutlinePathD(head, jawBend) {
     : `${renderPointPath(head.outline)} Z`;
 }
 
-function renderHead(headPathD) {
+function renderHead(headPathD, skinColor = "#f6f1e8") {
   return `
     <path
       d="${headPathD}"
-      fill="#f6f1e8"
+      fill="${skinColor}"
       stroke="black"
       stroke-width="4"
       stroke-linejoin="round"
     />
   `;
+}
+
+function renderEars(ears, layer) {
+  if (!ears) {
+    return "";
+  }
+
+  return [ears.left, ears.right]
+    .filter(ear => ear.layer === layer)
+    .map(renderEar)
+    .join("");
+}
+
+// Two curved edges (apex -> top attach, apex -> bottom attach) plus a straight,
+// unstroked attach edge closing the fill. The stroke path covers only the two
+// curved edges so the face-attached edge stays strokeless.
+function renderEar(ear) {
+  const { topAttach, bottomAttach, apex, curve, fill } = ear;
+  const centroid = scalePoint(addPoints(addPoints(topAttach, bottomAttach), apex), 1 / 3);
+  const cTop = earEdgeControl(topAttach, apex, centroid, curve);
+  const cBot = earEdgeControl(apex, bottomAttach, centroid, curve);
+
+  const fillD =
+    `M ${topAttach.x} ${topAttach.y} Q ${cTop.x} ${cTop.y} ${apex.x} ${apex.y}` +
+    ` Q ${cBot.x} ${cBot.y} ${bottomAttach.x} ${bottomAttach.y} Z`;
+  const strokeD =
+    `M ${topAttach.x} ${topAttach.y} Q ${cTop.x} ${cTop.y} ${apex.x} ${apex.y}` +
+    ` Q ${cBot.x} ${cBot.y} ${bottomAttach.x} ${bottomAttach.y}`;
+
+  return `
+    <path d="${fillD}" fill="${fill}" stroke="none" />
+    <path
+      d="${strokeD}"
+      fill="none"
+      stroke="black"
+      stroke-width="4"
+      stroke-linejoin="round"
+      stroke-linecap="round"
+    />
+  `;
+}
+
+// Outward-bulge control point for one edge, same technique as
+// renderCurvedPointPath - a quadratic control pushed perpendicular, away from
+// the shape centroid. Negative curve pulls the edge inward (concave inner ear).
+function earEdgeControl(from, to, centroid, curve) {
+  const mid = scalePoint(addPoints(from, to), 0.5);
+
+  if (!curve) {
+    return mid;
+  }
+
+  const edge = subtractPoints(to, from);
+  const len = Math.hypot(edge.x, edge.y) || 1;
+  let perp = { x: -edge.y / len, y: edge.x / len };
+  const towardMid = subtractPoints(mid, centroid);
+
+  if (perp.x * towardMid.x + perp.y * towardMid.y < 0) {
+    perp = scalePoint(perp, -1);
+  }
+
+  return addPoints(mid, scalePoint(perp, curve));
 }
 
 // Bulges just the two segments on each side where the skull arc meets the

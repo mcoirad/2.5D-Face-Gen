@@ -43,6 +43,7 @@ const controlGroups = [
   {
     title: "Face",
     keys: [
+      "skinColor",
       "faceWidth",
       "faceHeight",
       "lowerFaceWidth",
@@ -104,6 +105,11 @@ const controlGroups = [
   {
     title: "Armor",
     keys: ["showArmor", "armorColor", "pauldronPosition", "pauldronYOffset", "pauldronCurve"],
+    open: false
+  },
+  {
+    title: "Ears",
+    keys: ["showEars", "earStickOut", "earFlatten", "earCurve"],
     open: false
   },
   {
@@ -293,20 +299,25 @@ function createRandomizerControl() {
   const wrapper = document.createElement("div");
   wrapper.className = "randomizer-control";
   wrapper.innerHTML = `
-    <button type="button">Randomize sliders</button>
+    <button type="button" data-randomizer-mode="uniform">Randomize sliders</button>
+    <button type="button" data-randomizer-mode="normal">Randomize normal</button>
   `;
 
-  wrapper.querySelector("button").addEventListener("click", () => {
-    randomizeSliders(Object.keys(sliderConfig));
+  wrapper.querySelectorAll("button").forEach(button => {
+    button.addEventListener("click", () => {
+      randomizeSliders(Object.keys(sliderConfig), button.dataset.randomizerMode);
+    });
   });
 
   return wrapper;
 }
 
-function randomizeSliders(keys) {
+function randomizeSliders(keys, distribution = "uniform") {
   for (const key of keys) {
     const [min, max, step] = sliderConfig[key];
-    params[key] = randomSliderValue(min, max, step);
+    params[key] = distribution === "normal"
+      ? randomNormalSliderValue(key, min, max, step)
+      : randomSliderValue(min, max, step);
     updateSliderControl(key);
   }
 
@@ -332,6 +343,34 @@ function randomSliderValue(min, max, step) {
   const precision = decimalPrecision(step);
 
   return Number(Math.min(max, Math.max(min, value)).toFixed(precision));
+}
+
+function randomNormalSliderValue(key, min, max, step) {
+  const mean = Number.isFinite(defaultParams[key])
+    ? Math.min(max, Math.max(min, defaultParams[key]))
+    : (min + max) / 2;
+  const standardDeviation = (max - min) / 6;
+  const precision = decimalPrecision(step);
+  let value = mean;
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    value = mean + randomStandardNormal() * standardDeviation;
+
+    if (value >= min && value <= max) {
+      break;
+    }
+  }
+
+  const steppedValue = min + Math.round((value - min) / step) * step;
+
+  return Number(Math.min(max, Math.max(min, steppedValue)).toFixed(precision));
+}
+
+function randomStandardNormal() {
+  const u1 = 1 - Math.random();
+  const u2 = Math.random();
+
+  return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
 }
 
 function decimalPrecision(value) {

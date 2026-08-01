@@ -79,9 +79,9 @@ export const defaultFeatureLandmarks = {
       base: [-1.1313+ 0.05, 1.04+ 0.05]
     },
     mouth: {
-      left: [-1.0353+ 0.05 , 1.1194],
-      mid: [-1.0849+ 0.1, 1.275],
-      right: [-0.8422+ 0.05, 1.1723]
+      left: [-1.0353+ 0.05 , 1.1194 - 0.06],
+      mid: [-1.0849+ 0.1, 1.275 - 0.06],
+      right: [-0.8422+ 0.05, 1.1723 - 0.06]
     },
     pecs: {
       left: [-0.45, 0.12],
@@ -118,9 +118,9 @@ export const defaultOutlineLandmarks = {
     endTemple: [1.05, 0.52],
     lower: [
       { angle: 15, offsetX: 0, offsetY: -0.06 },
-      { angle: 85, offsetX: 0, offsetY: -0.06 },
-      { angle: 138, offsetX: 0, offsetY: -0.06 },
-      { angle: 180, offsetX: 0, offsetY: -0.06 },
+      { angle: 85, offsetX: 0, offsetY: -0.12 },
+      { angle: 138, offsetX: 0, offsetY: -0.12 },
+      { angle: 180, offsetX: 0, offsetY: -0.12 },
       { angle: 215, offsetX: 0, offsetY: 0 }
     ]
   }

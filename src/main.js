@@ -265,7 +265,7 @@ const controlGroups = [
   },
   {
     title: "Facial Hair",
-    keys: ["showMoustache", "moustacheLength", "showBeard", "beardCoverage", "beardLockCount", "beardLength"],
+    keys: ["showMoustache", "moustacheLength", "showSoulPatch", "showBeard", "beardCoverage", "beardLockCount", "beardLength"],
     open: true
   },
   {

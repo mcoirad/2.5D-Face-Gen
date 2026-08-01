@@ -696,11 +696,12 @@ function solveFeatureVisibilityFromNose(pose, eyes, noseTip) {
 
 const MOUSTACHE_LOCK_SEED = 10000;
 const BEARD_LOCK_SEED = 20000;
+const SOUL_PATCH_LOCK_SEED = 30000;
 const BEARD_CHIN_COVERAGE = 0.15;
-const FACIAL_HAIR_DOWN_BIAS = 0.65;
+const BEARD_ROOT_LIFT = 8;
 
 function solveFacialHair(params, pose, head, features) {
-  if (!params.showMoustache && !params.showBeard) {
+  if (!params.showMoustache && !params.showSoulPatch && !params.showBeard) {
     return null;
   }
 
@@ -708,7 +709,10 @@ function solveFacialHair(params, pose, head, features) {
   const shineColor = resolveHairShineColor(params, "hairV2Color");
   const results = [
     ...(params.showMoustache
-      ? makeMoustacheLocks(params, pose, features.nose, color, shineColor)
+      ? makeMoustacheLocks(params, pose, features, color, shineColor)
+      : []),
+    ...(params.showSoulPatch
+      ? [makeSoulPatchLock(params, pose, head, features, color, shineColor)]
       : []),
     ...(params.showBeard
       ? makeBeardLocks(params, pose, head, features, color, shineColor)
@@ -722,9 +726,12 @@ function solveFacialHair(params, pose, head, features) {
   };
 }
 
-function makeMoustacheLocks(params, pose, nose, color, shineColor) {
+function makeMoustacheLocks(params, pose, features, color, shineColor) {
+  const nose = features.nose;
+  const noseBottomY = (nose.leftNostril.y + nose.rightNostril.y) / 2;
+  const rootY = lerp(noseBottomY, features.mouth.mid.y, 0.5);
   const roots = [nose.leftNostril, nose.rightNostril]
-    .map(point => ({ x: point.x, y: point.y }))
+    .map(point => ({ x: point.x, y: rootY }))
     .sort((left, right) => left.x - right.x);
   const centerX = (roots[0].x + roots[1].x) / 2;
 
@@ -747,6 +754,31 @@ function makeMoustacheLocks(params, pose, nose, color, shineColor) {
       opacity,
       layer: farSide && pose.profile > 0 ? "back" : "front"
     });
+  });
+}
+
+function makeSoulPatchLock(params, pose, head, features, color, shineColor) {
+  const outline = head.baseOutline ?? head.outline;
+  const chin = outline.reduce(
+    (lowest, point) => point.y > lowest.y ? point : lowest,
+    outline[0]
+  );
+  const base = {
+    x: lerp(features.mouth.mid.x, chin.x, 0.5),
+    y: lerp(features.mouth.mid.y, chin.y, 0.5)
+  };
+
+  return makeHairV2Lock({
+    index: SOUL_PATCH_LOCK_SEED,
+    base,
+    direction: { x: 0, y: 1 },
+    params,
+    lengthOverride: params.beardLength,
+    color,
+    shineColor,
+    curveMirror: pose.sign,
+    sidePosition: 0,
+    layer: "front"
   });
 }
 
@@ -776,7 +808,8 @@ function makeBeardLocks(params, pose, head, features, color, shineColor) {
   return Array.from({ length: count }, (_, index) => {
     const amount = count === 1 ? 0.5 : index / (count - 1);
     const distance = lerp(startDistance, endDistance, amount);
-    const base = samplePolylineAtDistance(jawPath, distances, distance);
+    const jawBase = samplePolylineAtDistance(jawPath, distances, distance);
+    const base = { x: jawBase.x, y: jawBase.y - BEARD_ROOT_LIFT };
     const before = samplePolylineAtDistance(jawPath, distances, Math.max(0, distance - tangentStep));
     const after = samplePolylineAtDistance(jawPath, distances, Math.min(totalLength, distance + tangentStep));
     const tangent = normalizePoint(subtractPoints(after, before));
@@ -789,7 +822,7 @@ function makeBeardLocks(params, pose, head, features, color, shineColor) {
 
     const direction = normalizePoint({
       x: outward.x,
-      y: outward.y + FACIAL_HAIR_DOWN_BIAS
+      y: outward.y + params.hairV2Gravity
     });
     const screenSide = Math.sign(base.x - faceCenter.x) || pose.sign;
     const farSide = pose.amount > 0 && screenSide * pose.sign < 0;

@@ -76,26 +76,12 @@ export function solveHairV2(params, pose, structure) {
   const partHalf = lerp(0.03, 0.55, params.hairV2PartLength);
   const midpoint = scalp(partU, PART_MID_V);
 
-  const headbandHalf = params.hairV2HeadbandWidth / 2;
-  let headbandVLow = params.hairV2HeadbandPosition - headbandHalf;
-  let headbandVHigh = params.hairV2HeadbandPosition + headbandHalf;
-
-  // Only guard the crown side: sliding the band up if it would dip below
-  // v=0 preserves its width instead of collapsing it (independently
-  // clamping each edge would do that). The hairline side (v=1) is
-  // intentionally left uncapped -- the band can be pushed past the
-  // hairline, onto the forehead, even though that's past what this scalp
-  // model otherwise represents; visual collision with face features there
-  // is expected and fine for now.
-  if (headbandVLow < 0) {
-    const shift = -headbandVLow;
-    headbandVLow += shift;
-    headbandVHigh += shift;
-  }
-  headbandVLow = Math.max(headbandVLow, 0);
-
-  const headbandActive = Boolean(params.showHairV2Headband) && headbandVHigh > headbandVLow;
-  const headband = headbandActive ? { active: true, vLow: headbandVLow, vHigh: headbandVHigh } : null;
+  // Locks still bend around the band when both hair v2 and the headband are
+  // enabled. The band's own belt shape is solved and drawn separately by
+  // solveHeadband, so the accessory can render without hair v2 on at all --
+  // this only shares the band geometry to drive the lock deformation below.
+  const band = computeHeadbandBand(params);
+  const headband = band.active ? { active: true, vLow: band.vLow, vHigh: band.vHigh } : null;
 
   const count = Math.round(params.hairV2LockCount);
   const color = resolveHairColor(params, "hairV2Color");
@@ -129,11 +115,6 @@ export function solveHairV2(params, pose, structure) {
       }
     }
   }
-
-  const headbandColor = resolveHairColor(params, "hairV2HeadbandColor");
-  const headbandBelt = headbandActive
-    ? makeHeadbandBelt(scalp, headbandVLow, headbandVHigh, headbandColor)
-    : null;
 
   // Solid coverage from the crown out to hairV2ScalpBaseCoverage, same color
   // as the locks, sitting underneath them - fills the gaps a jittered lock
@@ -169,9 +150,52 @@ export function solveHairV2(params, pose, structure) {
     shines,
     partGuide: makePartGuide(scalp, partU, partHalf),
     showPartGuide: Boolean(params.showHairV2PartGuide),
-    headbandBelt,
     scalpBase,
     sharedOutline: Boolean(params.hairV2SharedOutline)
+  };
+}
+
+// Resolve the headband's latitude band from its position/width params.
+// Only guard the crown side: sliding the band up if it would dip below
+// v=0 preserves its width instead of collapsing it (independently
+// clamping each edge would do that). The hairline side (v=1) is
+// intentionally left uncapped -- the band can be pushed past the
+// hairline, onto the forehead, even though that's past what this scalp
+// model otherwise represents; visual collision with face features there
+// is expected and fine for now.
+export function computeHeadbandBand(params) {
+  const half = params.hairV2HeadbandWidth / 2;
+  let vLow = params.hairV2HeadbandPosition - half;
+  let vHigh = params.hairV2HeadbandPosition + half;
+
+  if (vLow < 0) {
+    const shift = -vLow;
+    vLow += shift;
+    vHigh += shift;
+  }
+  vLow = Math.max(vLow, 0);
+
+  const active = Boolean(params.showHairV2Headband) && vHigh > vLow;
+
+  return { active, vLow, vHigh };
+}
+
+// The headband is a standalone accessory: it solves and draws its own belt
+// independently of hair v2, so it renders whether or not hair v2 is enabled.
+export function solveHeadband(params, pose, structure) {
+  const band = computeHeadbandBand(params);
+
+  if (!band.active) {
+    return null;
+  }
+
+  const projectStructure = createStructureProjector(params);
+  const { skull } = structure;
+  const scalp = (u, v) => scalpPoint(u, v, projectStructure, skull, pose);
+  const color = resolveHairColor(params, "hairV2HeadbandColor");
+
+  return {
+    belt: makeHeadbandBelt(scalp, band.vLow, band.vHigh, color)
   };
 }
 
@@ -261,8 +285,40 @@ function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color
 
   direction = normalizePoint(direction);
 
+  return makeHairV2Lock({
+    index,
+    base,
+    direction,
+    params,
+    color,
+    shineColor,
+    curveMirror
+  });
+}
+
+// Shared Hair V2 lock entry point. Scalp hair supplies roots and directions
+// from the scalp map; facial hair supplies them from projected face landmarks.
+// Everything after placement stays identical: deterministic variation, curl,
+// rounded roots, lighting, shine, and the final renderer-facing shape fields.
+export function makeHairV2Lock({
+  index,
+  base,
+  direction,
+  params,
+  lengthOverride = null,
+  color = resolveHairColor(params, "hairV2Color"),
+  shineColor = resolveHairShineColor(params, "hairV2Color"),
+  curveMirror = 1,
+  sidePosition = base.sidePosition ?? 0,
+  depthPosition = base.depthPosition ?? 1,
+  opacity = 1,
+  layer = null
+}) {
+  const normalizedDirection = normalizePoint(direction);
+
   const width = params.hairV2LockWidth * lerp(0.85, 1.15, seededRandom(index, 3));
-  const length = params.hairV2LockLength * lerp(0.85, 1.15, seededRandom(index, 4));
+  const baseLength = lengthOverride ?? params.hairV2LockLength;
+  const length = baseLength * lerp(0.85, 1.15, seededRandom(index, 4));
   const curve = length * 0.12 * (seededRandom(index, 5) < 0.5 ? -1 : 1) * curveMirror;
   const curlAngle = params.hairV2CurlAngle * Math.PI / 180 * curveMirror;
 
@@ -270,7 +326,7 @@ function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color
   // light sits (hairV2LightX) and this lock's own yaw-aware left/right
   // position (sidePosition). Provably 1 (no-op) whenever hairV2LightX is 0,
   // since alignment is then 0 regardless of sidePosition.
-  const alignment = base.sidePosition * params.hairV2LightX;
+  const alignment = sidePosition * params.hairV2LightX;
   const shadowTarget = alignment >= 0 ? 1 : HAIR_SHINE_SHADOW_FLOOR;
   const illumination = lerp(1, shadowTarget, Math.abs(alignment));
 
@@ -287,22 +343,32 @@ function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color
       }
     : null;
 
-  return buildLockGeometry(
+  const result = buildLockGeometry(
     base,
-    direction,
+    normalizedDirection,
     width,
     length,
     curve,
     color,
-    base.depthPosition,
+    depthPosition,
     params.hairV2LockRootRound,
     params.hairV2CurlInterval,
     curlAngle,
     params.hairV2CurlPeriod,
     params.hairV2CurlDelay,
     index,
-    shine
+    shine,
+    opacity
   );
+
+  if (layer) {
+    result.lock.layer = layer;
+    if (result.shine) {
+      result.shine.layer = layer;
+    }
+  }
+
+  return result;
 }
 
 // Caps how far a shine's width bias can push toward one edge, so a wide
@@ -318,7 +384,7 @@ function maxShineBias(shineWidthFraction) {
   return Math.max(0, Math.min(HAIR_SHINE_ASYMMETRY_MAX_BIAS, HAIR_SHINE_MAX_WIDTH_FRACTION / shineWidthFraction - 1));
 }
 
-function buildLockGeometry(base, direction, width, length, curve, color, depthPosition, rootRound, interval, curlAngle, curlPeriod, curlDelay, index, shine) {
+function buildLockGeometry(base, direction, width, length, curve, color, depthPosition, rootRound, interval, curlAngle, curlPeriod, curlDelay, index, shine, opacity = 1) {
   const segmentCount = Math.max(1, Math.round(length / interval));
   const tangent = { x: -direction.y, y: direction.x };
 
@@ -371,9 +437,9 @@ function buildLockGeometry(base, direction, width, length, curve, color, depthPo
     }
   }
 
-  const lock = finishLockGeometry(geometry, base, direction, width, rootRound, depthPosition, color.fill, color.stroke, 1);
+  const lock = finishLockGeometry(geometry, base, direction, width, rootRound, depthPosition, color.fill, color.stroke, opacity);
   const shineResult = shineGeometry
-    ? finishLockGeometry(shineGeometry, base, direction, width * shine.width, rootRound, depthPosition, shine.color, "none", HAIR_SHINE_OPACITY)
+    ? finishLockGeometry(shineGeometry, base, direction, width * shine.width, rootRound, depthPosition, shine.color, "none", HAIR_SHINE_OPACITY * opacity)
     : null;
 
   return { lock, shine: shineResult };

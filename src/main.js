@@ -253,11 +253,6 @@ const controlGroups = [
       "hairV2CurlAngle",
       "hairV2CurlPeriod",
       "hairV2CurlDelay",
-      "showHairV2Headband",
-      "hairV2HeadbandColor",
-      "hairV2HeadbandPosition",
-      "hairV2HeadbandWidth",
-      "hairV2HeadbandStrength",
       "showHairV2ScalpBase",
       "hairV2ScalpBaseCoverage",
       "hairV2SharedOutline",
@@ -266,6 +261,16 @@ const controlGroups = [
       "hairV2ShineLength",
       "hairV2LightX"
     ],
+    open: true
+  },
+  {
+    title: "Facial Hair",
+    keys: ["showMoustache", "moustacheLength", "showBeard", "beardCoverage", "beardLockCount", "beardLength"],
+    open: true
+  },
+  {
+    title: "Accessories",
+    keys: ["showHairV2Headband", "hairV2HeadbandColor"],
     open: true
   },
   {

@@ -5,7 +5,7 @@ import {
   poseSign,
   smoothstep
 } from "./geometry.js";
-import { solveHairV2 } from "./hairV2.js";
+import { makeHairV2Lock, solveHairV2, solveHeadband } from "./hairV2.js";
 
 const FACE_CENTER_Y = 10;
 const DEFAULTS = {
@@ -177,6 +177,7 @@ export function solveFaceRig(params) {
     : head.outline;
 
   const body = solveBody(params, pose, head.structure);
+  const facialHair = solveFacialHair(params, { ...pose, profile }, head, features);
 
   return {
     showGuides: params.showGuides,
@@ -193,6 +194,8 @@ export function solveFaceRig(params) {
     head,
     hair: solveHair(params, pose, head.structure),
     hairV2: params.showHairV2 ? solveHairV2(params, pose, head.structure) : null,
+    facialHair,
+    headband: solveHeadband(params, pose, head.structure),
     body,
     armor: solveArmor(params, pose, head.structure, body),
     ears: params.showEars ? solveEars(params, pose, head.structure, features, head.outline) : null,
@@ -252,6 +255,7 @@ function solveHead(params, pose) {
       lowerFace: lowerFaceGuide
     },
     outline,
+    baseOutline: outline,
     structure: {
       skull,
       lowerFace,
@@ -688,6 +692,222 @@ function solveFeatureVisibilityFromNose(pose, eyes, noseTip) {
     !farEyeIsOccluded,
     true
   ];
+}
+
+const MOUSTACHE_LOCK_SEED = 10000;
+const BEARD_LOCK_SEED = 20000;
+const BEARD_CHIN_COVERAGE = 0.15;
+const FACIAL_HAIR_DOWN_BIAS = 0.65;
+
+function solveFacialHair(params, pose, head, features) {
+  if (!params.showMoustache && !params.showBeard) {
+    return null;
+  }
+
+  const color = resolveHairColor(params, "hairV2Color");
+  const shineColor = resolveHairShineColor(params, "hairV2Color");
+  const results = [
+    ...(params.showMoustache
+      ? makeMoustacheLocks(params, pose, features.nose, color, shineColor)
+      : []),
+    ...(params.showBeard
+      ? makeBeardLocks(params, pose, head, features, color, shineColor)
+      : [])
+  ];
+
+  return {
+    locks: results.map(result => result.lock),
+    shines: results.flatMap(result => result.shine ? [result.shine] : []),
+    sharedOutline: Boolean(params.hairV2SharedOutline)
+  };
+}
+
+function makeMoustacheLocks(params, pose, nose, color, shineColor) {
+  const roots = [nose.leftNostril, nose.rightNostril]
+    .map(point => ({ x: point.x, y: point.y }))
+    .sort((left, right) => left.x - right.x);
+  const centerX = (roots[0].x + roots[1].x) / 2;
+
+  return roots.map(root => {
+    const screenSide = Math.sign(root.x - centerX) || 1;
+    const farSide = pose.amount > 0 && screenSide * pose.sign < 0;
+    const opacity = farSide ? 1 - pose.profile : 1;
+    const direction = normalizePoint({ x: screenSide, y: 0.15 });
+
+    return makeHairV2Lock({
+      index: MOUSTACHE_LOCK_SEED,
+      base: root,
+      direction,
+      params,
+      lengthOverride: params.moustacheLength,
+      color,
+      shineColor,
+      curveMirror: screenSide,
+      sidePosition: screenSide,
+      opacity,
+      layer: farSide && pose.profile > 0 ? "back" : "front"
+    });
+  });
+}
+
+function makeBeardLocks(params, pose, head, features, color, shineColor) {
+  const jawPath = makeJawPath(head.baseOutline ?? head.outline, features.nose.tip.y);
+
+  if (jawPath.length < 2) {
+    return [];
+  }
+
+  const distances = cumulativePolylineDistances(jawPath);
+  const totalLength = distances[distances.length - 1];
+  const chinIndex = jawPath.reduce(
+    (bestIndex, point, index) => point.y > jawPath[bestIndex].y ? index : bestIndex,
+    0
+  );
+  const chinDistance = distances[chinIndex];
+  const coverage = lerp(BEARD_CHIN_COVERAGE, 1, clamp(params.beardCoverage, 0, 1));
+  const startDistance = chinDistance - chinDistance * coverage;
+  const endDistance = chinDistance + (totalLength - chinDistance) * coverage;
+  const count = Math.max(2, Math.round(params.beardLockCount));
+  const projectStructure = createStructureProjector(params);
+  const lowerFace = head.structure.lowerFace;
+  const faceCenter = projectStructure(lowerFace.cx, lowerFace.cy, lowerFace.z);
+  const tangentStep = Math.max(1, totalLength * 0.005);
+
+  return Array.from({ length: count }, (_, index) => {
+    const amount = count === 1 ? 0.5 : index / (count - 1);
+    const distance = lerp(startDistance, endDistance, amount);
+    const base = samplePolylineAtDistance(jawPath, distances, distance);
+    const before = samplePolylineAtDistance(jawPath, distances, Math.max(0, distance - tangentStep));
+    const after = samplePolylineAtDistance(jawPath, distances, Math.min(totalLength, distance + tangentStep));
+    const tangent = normalizePoint(subtractPoints(after, before));
+    let outward = { x: -tangent.y, y: tangent.x };
+    const awayFromCenter = subtractPoints(base, faceCenter);
+
+    if (outward.x * awayFromCenter.x + outward.y * awayFromCenter.y < 0) {
+      outward = scalePoint(outward, -1);
+    }
+
+    const direction = normalizePoint({
+      x: outward.x,
+      y: outward.y + FACIAL_HAIR_DOWN_BIAS
+    });
+    const screenSide = Math.sign(base.x - faceCenter.x) || pose.sign;
+    const farSide = pose.amount > 0 && screenSide * pose.sign < 0;
+    const opacity = farSide ? 1 - pose.profile : 1;
+    const sidePosition = clamp(
+      (base.x - faceCenter.x) / Math.max(1, lowerFace.rx),
+      -1,
+      1
+    );
+
+    return makeHairV2Lock({
+      index: BEARD_LOCK_SEED + index,
+      base,
+      direction,
+      params,
+      lengthOverride: params.beardLength,
+      color,
+      shineColor,
+      curveMirror: screenSide,
+      sidePosition,
+      opacity,
+      layer: farSide && pose.profile > 0 ? "back" : "front"
+    });
+  });
+}
+
+// Walk both directions from the lowest outline point until reaching the same
+// vertical attachment level the ear solver uses. Combining those walks yields
+// the visible lower edge from one ear base through the chin to the other.
+function makeJawPath(outline, earBottomY) {
+  if (!outline?.length) {
+    return [];
+  }
+
+  const chinIndex = outline.reduce(
+    (bestIndex, point, index) => point.y > outline[bestIndex].y ? index : bestIndex,
+    0
+  );
+  const lowerStart = outline[OUTLINE_UPPER_ARC_POINT_COUNT] ?? outline[0];
+  const lowerEnd = outline[outline.length - 1];
+  const lowerSideY = Math.max(lowerStart.y, lowerEnd.y);
+  const fallbackAttachmentY = lerp(lowerSideY, outline[chinIndex].y, 0.45);
+  const attachmentY = Math.min(earBottomY, fallbackAttachmentY);
+  const firstSide = walkOutlineToY(outline, chinIndex, -1, attachmentY);
+  const secondSide = walkOutlineToY(outline, chinIndex, 1, attachmentY);
+
+  if (!firstSide || !secondSide) {
+    return [];
+  }
+
+  let path = [...firstSide.reverse(), ...secondSide.slice(1)];
+
+  if (path[0].x > path[path.length - 1].x) {
+    path = path.reverse();
+  }
+
+  return path;
+}
+
+function walkOutlineToY(outline, startIndex, step, targetY) {
+  const points = [{ x: outline[startIndex].x, y: outline[startIndex].y }];
+  let currentIndex = startIndex;
+
+  for (let visited = 0; visited < outline.length; visited += 1) {
+    const nextIndex = (currentIndex + step + outline.length) % outline.length;
+    const current = outline[currentIndex];
+    const next = outline[nextIndex];
+
+    if (current.y >= targetY && next.y <= targetY) {
+      const span = next.y - current.y;
+      const amount = Math.abs(span) < 0.001 ? 0 : (targetY - current.y) / span;
+      points.push({
+        x: lerp(current.x, next.x, amount),
+        y: targetY
+      });
+      return points;
+    }
+
+    points.push({ x: next.x, y: next.y });
+    currentIndex = nextIndex;
+  }
+
+  return null;
+}
+
+function cumulativePolylineDistances(points) {
+  const distances = [0];
+
+  for (let index = 1; index < points.length; index += 1) {
+    const segment = subtractPoints(points[index], points[index - 1]);
+    distances.push(distances[index - 1] + Math.hypot(segment.x, segment.y));
+  }
+
+  return distances;
+}
+
+function samplePolylineAtDistance(points, distances, targetDistance) {
+  const totalLength = distances[distances.length - 1];
+  const distance = clamp(targetDistance, 0, totalLength);
+
+  for (let index = 1; index < distances.length; index += 1) {
+    if (distance > distances[index]) {
+      continue;
+    }
+
+    const segmentLength = distances[index] - distances[index - 1];
+    const amount = segmentLength > 0
+      ? (distance - distances[index - 1]) / segmentLength
+      : 0;
+
+    return {
+      x: lerp(points[index - 1].x, points[index].x, amount),
+      y: lerp(points[index - 1].y, points[index].y, amount)
+    };
+  }
+
+  const last = points[points.length - 1];
+  return { x: last.x, y: last.y };
 }
 
 function solveHair(params, pose, structure) {

@@ -12,13 +12,19 @@ export function renderFaceSvg(rig) {
       ${renderHelmetLayers(rig.helmet?.back)}
       ${renderEars(rig.ears, "back")}
       ${renderHair(rig.hair, "back")}
+      ${renderHairV2ScalpBase(rig.hairV2, "back")}
+      ${renderHeadband(rig.headband, "back")}
       ${renderHairV2(rig.hairV2, "back")}
+      ${renderFacialHair(rig.facialHair, "back")}
       ${renderHead(headPathD, rig.skinColor)}
       ${renderEars(rig.ears, "front")}
       ${rig.showGuides ? renderGuides(rig.head.guides) : ""}
       ${renderNose(rig.features.nose)}
       ${renderMouth(rig.features.mouth, headPathD, rig.clipMouthToFace)}
+      ${renderFacialHair(rig.facialHair, "front")}
       ${renderHair(rig.hair, "front")}
+      ${renderHairV2ScalpBase(rig.hairV2, "front")}
+      ${renderHeadband(rig.headband, "front")}
       ${renderHairV2(rig.hairV2, "front")}
       ${renderHelmetLayers(rig.helmet?.front)}
       ${rig.features.eyes.map(renderEye).join("")}
@@ -373,18 +379,66 @@ function renderHair(hair, layer) {
   `;
 }
 
+// Standalone accessory belt, rendered with the same back/front split and
+// shared-outline treatment the belt had when it lived inside renderHairV2 -
+// only its sort position changed: the front run now sits below the hair/shine
+// (drawn before them) and above the face polygon, while the back run still
+// renders behind the face.
+function renderHeadband(headband, layer) {
+  if (!headband) {
+    return "";
+  }
+
+  const shapes = headband.belt
+    .filter(item => matchesHairLayer(item, layer))
+    .map(strip => ({
+      d: `${renderPointPath(strip.points)} Z`,
+      fill: strip.fill,
+      stroke: strip.stroke,
+      strokeWidth: 2.5,
+      opacity: 1
+    }));
+
+  if (!shapes.length) {
+    return "";
+  }
+
+  return renderSharedOutlineShapes(shapes);
+}
+
+// The scalp-base coverage rings render in their own pass, below the headband,
+// so the accessory sits on top of the base fill but still under the locks and
+// shine (which renderHairV2 draws afterwards). Kept as its own shared-outline
+// group; the rings still hide their mutual seams the same way.
+function renderHairV2ScalpBase(hairV2, layer) {
+  if (!hairV2) {
+    return "";
+  }
+
+  const shapes = (hairV2.scalpBase ?? [])
+    .filter(item => matchesHairLayer(item, layer))
+    .map(strip => ({
+      d: `${renderPointPath(strip.points)} Z`,
+      fill: strip.fill,
+      stroke: strip.stroke,
+      strokeWidth: 2.5,
+      opacity: 1
+    }));
+
+  if (!shapes.length) {
+    return "";
+  }
+
+  return hairV2.sharedOutline
+    ? renderSharedOutlineShapes(shapes)
+    : shapes.map(renderHairShape).join("");
+}
+
 function renderHairV2(hairV2, layer) {
   if (!hairV2) {
     return "";
   }
 
-  const beltShape = strip => ({
-    d: `${renderPointPath(strip.points)} Z`,
-    fill: strip.fill,
-    stroke: strip.stroke,
-    strokeWidth: 2.5,
-    opacity: 1
-  });
   const lockShape = lock => ({
     d: renderHairLockPath(lock),
     fill: lock.fill,
@@ -393,11 +447,9 @@ function renderHairV2(hairV2, layer) {
     opacity: lock.opacity
   });
 
-  const shapes = [
-    ...(hairV2.scalpBase ?? []).filter(item => matchesHairLayer(item, layer)).map(beltShape),
-    ...hairV2.locks.filter(item => matchesHairLayer(item, layer)).map(lockShape),
-    ...(hairV2.headbandBelt ?? []).filter(item => matchesHairLayer(item, layer)).map(beltShape)
-  ];
+  const shapes = hairV2.locks
+    .filter(item => matchesHairLayer(item, layer))
+    .map(lockShape);
 
   const shapesMarkup = hairV2.sharedOutline
     ? renderSharedOutlineShapes(shapes)
@@ -422,6 +474,31 @@ function renderHairV2(hairV2, layer) {
     ${shines}
     ${partGuide}
   `;
+}
+
+function renderFacialHair(facialHair, layer) {
+  if (!facialHair) {
+    return "";
+  }
+
+  const shapes = facialHair.locks
+    .filter(item => matchesHairLayer(item, layer))
+    .map(lock => ({
+      d: renderHairLockPath(lock),
+      fill: lock.fill,
+      stroke: lock.stroke,
+      strokeWidth: 2,
+      opacity: lock.opacity
+    }));
+  const shapesMarkup = facialHair.sharedOutline
+    ? renderSharedOutlineShapes(shapes)
+    : shapes.map(renderHairShape).join("");
+  const shines = (facialHair.shines ?? [])
+    .filter(item => matchesHairLayer(item, layer))
+    .map(renderHairShine)
+    .join("");
+
+  return shapesMarkup + shines;
 }
 
 // Borderless fill on top of everything else in this layer, so it reads as a

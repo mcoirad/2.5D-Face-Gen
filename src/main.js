@@ -1,5 +1,5 @@
 import { colorConfig, defaultParams, selectConfig, sliderConfig, toggleConfig } from "./params.js";
-import { defaultFeatureLandmarks, defaultOutlineLandmarks, solveFaceRig } from "./rig.js";
+import { defaultFeatureLandmarks, defaultOutlineLandmarks, solveFaceRig, withFeatureLandmarkFallbacks } from "./rig.js";
 import { renderFaceSvg } from "./svgRenderer.js";
 import {
   createFaceArchive,
@@ -32,7 +32,9 @@ const landmarkLabels = {
   base: "Base",
   left: "Left",
   mid: "Mid",
-  right: "Right"
+  right: "Right",
+  moustacheLeft: "Moustache left root",
+  moustacheRight: "Moustache right root"
 };
 const controlGroups = [
   {
@@ -574,6 +576,9 @@ function createPoseEditor(poseKey) {
     fields.appendChild(createPointEditor("feature", poseKey, pointKey, landmarkLabels[pointKey], null, "nose"));
   });
 
+  fields.appendChild(createPointEditor("feature", poseKey, "left", landmarkLabels.moustacheLeft, null, "moustache"));
+  fields.appendChild(createPointEditor("feature", poseKey, "right", landmarkLabels.moustacheRight, null, "moustache"));
+
   ["left", "mid", "right"].forEach(pointKey => {
     fields.appendChild(createPointEditor("feature", poseKey, pointKey, landmarkLabels[pointKey], null, "mouth"));
   });
@@ -689,9 +694,7 @@ function applyParams(snapshot) {
     outlineLandmarks: migratedSnapshot.outlineLandmarks
       ? structuredClone(migratedSnapshot.outlineLandmarks)
       : structuredClone(defaultOutlineLandmarks),
-    featureLandmarks: migratedSnapshot.featureLandmarks
-      ? structuredClone(migratedSnapshot.featureLandmarks)
-      : structuredClone(defaultFeatureLandmarks)
+    featureLandmarks: structuredClone(withFeatureLandmarkFallbacks(migratedSnapshot.featureLandmarks))
   };
 
   Object.assign(params, restored);

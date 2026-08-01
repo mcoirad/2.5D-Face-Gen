@@ -38,6 +38,10 @@ export const defaultFeatureLandmarks = {
       mid: [-0.0197, 1.2605],
       right: [0.1505, 1.1889]
     },
+    moustache: {
+      left: [-0.0737, 1.1264],
+      right: [0.1063, 1.1264]
+    },
     // pecs are torso-anchored (fraction of orbitRadius / torsoLength, see
     // solveBody), not skull-anchored like the rest of this table - only the
     // front/threeQuarter/side blend machinery is being reused here.
@@ -62,6 +66,10 @@ export const defaultFeatureLandmarks = {
       mid: [-0.2596, 1.2279],
       right: [-0.1241, 1.1625]
     },
+    moustache: {
+      left: [-0.5211, 1.1148],
+      right: [-0.4136, 1.1148]
+    },
     pecs: {
       left: [-0.75, 0.1],
       right: [0.15, 0.1]
@@ -82,6 +90,10 @@ export const defaultFeatureLandmarks = {
       left: [-1.0353+ 0.05 , 1.1194 - 0.06],
       mid: [-1.0849+ 0.1, 1.275 - 0.06],
       right: [-0.8422+ 0.05, 1.1723 - 0.06]
+    },
+    moustache: {
+      left: [-1.1163, 1.2011],
+      right: [-1.0813, 1.2011]
     },
     pecs: {
       left: [-0.45, 0.12],
@@ -177,7 +189,7 @@ export function solveFaceRig(params) {
     : head.outline;
 
   const body = solveBody(params, pose, head.structure);
-  const facialHair = solveFacialHair(params, { ...pose, profile }, head, features);
+  const facialHair = solveFacialHair(params, pose, head, features);
 
   return {
     showGuides: params.showGuides,
@@ -205,25 +217,32 @@ export function solveFaceRig(params) {
   };
 }
 
-// Sessions saved before `pecs` was added to defaultFeatureLandmarks persist a
-// params.featureLandmarks that predates the field, so blending would crash on
-// a missing pecs. Backfill it from the defaults rather than requiring every
-// saved face to be re-exported.
-function withPecsFallback(featureLandmarks) {
+// Older sessions can predate either pec or moustache landmarks. Deep-merge
+// those families pose-by-pose so interpolation and the landmark editor can use
+// saved faces without requiring them to be re-exported first.
+export function withFeatureLandmarkFallbacks(featureLandmarks) {
   if (!featureLandmarks) {
-    return featureLandmarks;
+    return defaultFeatureLandmarks;
   }
 
-  return {
-    front: { pecs: defaultFeatureLandmarks.front.pecs, ...featureLandmarks.front },
-    threeQuarter: { pecs: defaultFeatureLandmarks.threeQuarter.pecs, ...featureLandmarks.threeQuarter },
-    side: { pecs: defaultFeatureLandmarks.side.pecs, ...featureLandmarks.side }
-  };
+  return Object.fromEntries(
+    ["front", "threeQuarter", "side"].map(poseKey => {
+      const defaults = defaultFeatureLandmarks[poseKey];
+      const saved = featureLandmarks[poseKey] ?? {};
+
+      return [poseKey, {
+        ...defaults,
+        ...saved,
+        moustache: { ...defaults.moustache, ...saved.moustache },
+        pecs: { ...defaults.pecs, ...saved.pecs }
+      }];
+    })
+  );
 }
 
 function solveHead(params, pose) {
   const projectStructure = createStructureProjector(params);
-  const reference = interpolateReferencePose(withPecsFallback(params.featureLandmarks) ?? defaultFeatureLandmarks, pose.amount);
+  const reference = interpolateReferencePose(withFeatureLandmarkFallbacks(params.featureLandmarks), pose.amount);
   const skull = {
     cx: 0,
     cy: FACE_CENTER_Y,
@@ -674,12 +693,17 @@ function solveFeatures(params, pose, structure) {
   const targetMouthMidY = lerp(noseBottomY, chinY, params.mouthPosition);
   const mouthYShift = targetMouthMidY - (skull.cy + reference.mouth.mid[1] * skull.ry);
   const mouth = makeMouth(projectStructure, skull, pose.sign, reference.mouth, mouthScale, params, mouthYShift);
+  const moustache = {
+    left: projectReferencePoint(projectStructure, skull, pose.sign, reference.moustache.left, 60),
+    right: projectReferencePoint(projectStructure, skull, pose.sign, reference.moustache.right, 60)
+  };
 
   return {
     eyes,
     brows,
     nose,
-    mouth
+    mouth,
+    moustache
   };
 }
 
@@ -699,6 +723,8 @@ const BEARD_LOCK_SEED = 20000;
 const SOUL_PATCH_LOCK_SEED = 30000;
 const BEARD_CHIN_COVERAGE = 0.15;
 const BEARD_ROOT_LIFT = 8;
+const FACIAL_HAIR_HIDE_DEPTH_THRESHOLD = -Math.SQRT1_2;
+const FACIAL_HAIR_DEPTH_EPSILON = 1e-9;
 
 function solveFacialHair(params, pose, head, features) {
   if (!params.showMoustache && !params.showSoulPatch && !params.showBeard) {
@@ -727,21 +753,25 @@ function solveFacialHair(params, pose, head, features) {
 }
 
 function makeMoustacheLocks(params, pose, features, color, shineColor) {
-  const nose = features.nose;
-  const noseBottomY = (nose.leftNostril.y + nose.rightNostril.y) / 2;
-  const rootY = lerp(noseBottomY, features.mouth.mid.y, 0.5);
-  const roots = [nose.leftNostril, nose.rightNostril]
-    .map(point => ({ x: point.x, y: rootY }))
+  const roots = [features.moustache.left, features.moustache.right]
+    .map(point => ({ x: point.x, y: point.y }))
     .sort((left, right) => left.x - right.x);
   const centerX = (roots[0].x + roots[1].x) / 2;
 
-  return roots.map(root => {
+  return roots.flatMap((root, index) => {
+    // Moustache culling follows the projected left/right lock, so mirrored
+    // poses remove the opposite screen-side lock instead of the same landmark.
+    const lateralPosition = index === 0 ? -1 : 1;
+    const depthPosition = facialHairDepthPosition(lateralPosition, pose.yaw);
+
+    if (isFacialHairDepthHidden(depthPosition)) {
+      return [];
+    }
+
     const screenSide = Math.sign(root.x - centerX) || 1;
-    const farSide = pose.amount > 0 && screenSide * pose.sign < 0;
-    const opacity = farSide ? 1 - pose.profile : 1;
     const direction = normalizePoint({ x: screenSide, y: 0.15 });
 
-    return makeHairV2Lock({
+    return [makeHairV2Lock({
       index: MOUSTACHE_LOCK_SEED,
       base: root,
       direction,
@@ -751,9 +781,8 @@ function makeMoustacheLocks(params, pose, features, color, shineColor) {
       shineColor,
       curveMirror: screenSide,
       sidePosition: screenSide,
-      opacity,
-      layer: farSide && pose.profile > 0 ? "back" : "front"
-    });
+      depthPosition
+    })];
   });
 }
 
@@ -778,7 +807,7 @@ function makeSoulPatchLock(params, pose, head, features, color, shineColor) {
     shineColor,
     curveMirror: pose.sign,
     sidePosition: 0,
-    layer: "front"
+    depthPosition: facialHairDepthPosition(0, pose.yaw)
   });
 }
 
@@ -808,6 +837,13 @@ function makeBeardLocks(params, pose, head, features, color, shineColor) {
   return Array.from({ length: count }, (_, index) => {
     const amount = count === 1 ? 0.5 : index / (count - 1);
     const distance = lerp(startDistance, endDistance, amount);
+    const lateralPosition = jawLateralPosition(distance, chinDistance, totalLength);
+    const depthPosition = facialHairDepthPosition(lateralPosition, pose.yaw);
+
+    if (isFacialHairDepthHidden(depthPosition)) {
+      return [];
+    }
+
     const jawBase = samplePolylineAtDistance(jawPath, distances, distance);
     const base = { x: jawBase.x, y: jawBase.y - BEARD_ROOT_LIFT };
     const before = samplePolylineAtDistance(jawPath, distances, Math.max(0, distance - tangentStep));
@@ -825,15 +861,13 @@ function makeBeardLocks(params, pose, head, features, color, shineColor) {
       y: outward.y + params.hairV2Gravity
     });
     const screenSide = Math.sign(base.x - faceCenter.x) || pose.sign;
-    const farSide = pose.amount > 0 && screenSide * pose.sign < 0;
-    const opacity = farSide ? 1 - pose.profile : 1;
     const sidePosition = clamp(
       (base.x - faceCenter.x) / Math.max(1, lowerFace.rx),
       -1,
       1
     );
 
-    return makeHairV2Lock({
+    return [makeHairV2Lock({
       index: BEARD_LOCK_SEED + index,
       base,
       direction,
@@ -843,10 +877,26 @@ function makeBeardLocks(params, pose, head, features, color, shineColor) {
       shineColor,
       curveMirror: screenSide,
       sidePosition,
-      opacity,
-      layer: farSide && pose.profile > 0 ? "back" : "front"
-    });
-  });
+      depthPosition
+    })];
+  }).flat();
+}
+
+function jawLateralPosition(distance, chinDistance, totalLength) {
+  if (distance <= chinDistance) {
+    return chinDistance > 0 ? -(chinDistance - distance) / chinDistance : 0;
+  }
+
+  const rightLength = totalLength - chinDistance;
+  return rightLength > 0 ? (distance - chinDistance) / rightLength : 0;
+}
+
+function facialHairDepthPosition(lateralPosition, yaw) {
+  return Math.cos((lateralPosition - yaw) * Math.PI / 2);
+}
+
+function isFacialHairDepthHidden(depthPosition) {
+  return depthPosition <= FACIAL_HAIR_HIDE_DEPTH_THRESHOLD + FACIAL_HAIR_DEPTH_EPSILON;
 }
 
 // Walk both directions from the lowest outline point until reaching the same
@@ -2448,6 +2498,10 @@ function blendReferencePose(fromPose, toPose, amount) {
       left: blendPair(fromPose.mouth.left, toPose.mouth.left, amount),
       mid: blendPair(fromPose.mouth.mid, toPose.mouth.mid, amount),
       right: blendPair(fromPose.mouth.right, toPose.mouth.right, amount)
+    },
+    moustache: {
+      left: blendPair(fromPose.moustache.left, toPose.moustache.left, amount),
+      right: blendPair(fromPose.moustache.right, toPose.moustache.right, amount)
     },
     pecs: {
       left: blendPair(fromPose.pecs.left, toPose.pecs.left, amount),

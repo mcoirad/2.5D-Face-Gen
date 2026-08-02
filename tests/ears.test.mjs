@@ -61,7 +61,7 @@ test("the unstroked attachment edge bows into the head", () => {
   const rig = solveFaceRig(makeParams({ yaw: 0, pitch: 0 }));
 
   for (const [ear, side] of [[rig.ears.left, -1], [rig.ears.right, 1]]) {
-    almostEqual(ear.attachControl.x, (ear.topAttach.x + ear.bottomAttach.x) / 2 - side * 2, "attachment overlap X");
+    almostEqual(ear.attachControl.x, (ear.topAttach.x + ear.bottomAttach.x) / 2 - side * 5, "attachment overlap X");
     almostEqual(ear.attachControl.y, (ear.topAttach.y + ear.bottomAttach.y) / 2, "attachment overlap Y");
   }
 });
@@ -104,7 +104,13 @@ test("pitch scales neutral ear height linearly without scaling stick-out or curv
   const positiveMid = solveFaceRig(makeParams({ yaw, pitch: 0.25 }));
   const positive = solveFaceRig(makeParams({ yaw, pitch: 0.5 }));
   const neutralHeight = neutral.ears.left.bottomAttach.y - neutral.ears.left.topAttach.y;
-  const featureGap = neutral.features.nose.tip.y
+  const lowestNoseY = Math.max(
+    neutral.features.nose.bridge.y,
+    neutral.features.nose.tip.y,
+    neutral.features.nose.leftNostril.y,
+    neutral.features.nose.rightNostril.y
+  );
+  const featureGap = lowestNoseY
     - (neutral.features.eyes[0].center.y + neutral.features.eyes[1].center.y) / 2;
 
   almostEqual(neutralHeight, Math.max(20, featureGap), "neutral height uses eye-to-nose gap");
@@ -119,14 +125,29 @@ test("pitch scales neutral ear height linearly without scaling stick-out or curv
   almostEqual(positive.ears.left.curve, neutral.ears.left.curve, "curve remains unchanged");
 });
 
-test("ear layers remain unchanged through three-quarter then split by depth", () => {
+test("neutral ear height uses the lowest nose point rather than always using the tip", () => {
+  const profile = solveFaceRig(makeParams({ yaw: 1, pitch: 0 }));
+  const eyeY = (profile.features.eyes[0].center.y + profile.features.eyes[1].center.y) / 2;
+  const lowestNoseY = Math.max(
+    profile.features.nose.bridge.y,
+    profile.features.nose.tip.y,
+    profile.features.nose.leftNostril.y,
+    profile.features.nose.rightNostril.y
+  );
+  const earHeight = profile.ears.left.bottomAttach.y - profile.ears.left.topAttach.y;
+
+  assert.ok(lowestNoseY > profile.features.nose.tip.y, "profile nostril should sit below the tip");
+  almostEqual(earHeight, Math.max(20, lowestNoseY - eyeY), "profile height uses lowest nose point");
+});
+
+test("ears stay behind through three-quarter then split by depth", () => {
   const front = solveFaceRig(makeParams({ yaw: 0 }));
   const turned = solveFaceRig(makeParams({ yaw: 0.4 }));
   const threeQuarter = solveFaceRig(makeParams({ yaw: 0.5 }));
   const positiveProfile = solveFaceRig(makeParams({ yaw: 0.75 }));
   const negativeProfile = solveFaceRig(makeParams({ yaw: -0.75 }));
 
-  assert.deepEqual([front.ears.left.layer, front.ears.right.layer], ["front", "front"]);
+  assert.deepEqual([front.ears.left.layer, front.ears.right.layer], ["back", "back"]);
   assert.deepEqual([turned.ears.left.layer, turned.ears.right.layer], ["back", "back"]);
   assert.deepEqual([threeQuarter.ears.left.layer, threeQuarter.ears.right.layer], ["back", "back"]);
   assert.deepEqual([positiveProfile.ears.left.layer, positiveProfile.ears.right.layer], ["back", "front"]);

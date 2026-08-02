@@ -2178,9 +2178,8 @@ function solveArmor(params, pose, structure, body) {
 // real outline; from there they converge on one authored profile attachment.
 // Pitch scales the pitch-zero eye-to-nose height explicitly, instead of letting
 // the eyes' and nose's different depths change the ear size accidentally.
-const EAR_BEHIND_YAW = 0.3;
 const EAR_PROFILE_BLEND_START = 0.5;
-const EAR_ATTACH_OVERLAP = 2;
+const EAR_ATTACH_OVERLAP = 5;
 const EAR_NEGATIVE_PITCH_HEIGHT_RATIO = 0.5;
 const EAR_POSITIVE_PITCH_HEIGHT_RATIO = 0.8;
 const EAR_PITCH_LIMIT = 0.5;
@@ -2190,7 +2189,14 @@ function solveEars(params, pose, structure, features, outline) {
   const lowerFace = structure.lowerFace;
   const eyeCenter = averageProjectedPoints(features.eyes[0].center, features.eyes[1].center);
   const neutralEye = unprojectStructurePoint(eyeCenter, params.pitch);
-  const neutralNose = unprojectStructurePoint(features.nose.tip, params.pitch);
+  const neutralNose = [
+    features.nose.bridge,
+    features.nose.tip,
+    features.nose.leftNostril,
+    features.nose.rightNostril
+  ]
+    .map(point => unprojectStructurePoint(point, params.pitch))
+    .reduce((lowest, point) => point.y > lowest.y ? point : lowest);
   const neutralGap = Math.max(20, neutralNose.y - neutralEye.y);
   const neutralCenter = averageProjectedPoints(neutralEye, neutralNose);
   const projectStructure = createStructureProjector(params);
@@ -2226,7 +2232,7 @@ function solveEars(params, pose, structure, features, outline) {
     const apexOut = params.earStickOut * width;
     const layer = pose.amount > EAR_PROFILE_BLEND_START
       ? (faces > 0 ? "front" : "back")
-      : (pose.amount > EAR_BEHIND_YAW ? "back" : "front");
+      : "back";
 
     return {
       topAttach: { x: topX, y: topY },

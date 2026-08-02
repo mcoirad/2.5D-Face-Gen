@@ -42,6 +42,9 @@ export const defaultFeatureLandmarks = {
       left: [-0.0737, 1.19],
       right: [0.1063, 1.19]
     },
+    soulPatch: {
+      root: [0.0183, 1.62]
+    },
     // pecs are torso-anchored (fraction of orbitRadius / torsoLength, see
     // solveBody), not skull-anchored like the rest of this table - only the
     // front/threeQuarter/side blend machinery is being reused here.
@@ -70,6 +73,9 @@ export const defaultFeatureLandmarks = {
       left: [-0.58, 1.17],
       right: [-0.32, 1.17]
     },
+    soulPatch: {
+      root: [-0.25, 1.59]
+    },
     pecs: {
       left: [-0.75, 0.1],
       right: [0.15, 0.1]
@@ -94,6 +100,9 @@ export const defaultFeatureLandmarks = {
     moustache: {
       left: [-1.16, 1.2011],
       right: [-1.02, 1.2011]
+    },
+    soulPatch: {
+      root: [-0.84, 1.12]
     },
     pecs: {
       left: [-0.45, 0.12],
@@ -217,9 +226,9 @@ export function solveFaceRig(params) {
   };
 }
 
-// Older sessions can predate either pec or moustache landmarks. Deep-merge
-// those families pose-by-pose so interpolation and the landmark editor can use
-// saved faces without requiring them to be re-exported first.
+// Older sessions can predate pec or facial-hair landmarks. Deep-merge those
+// families pose-by-pose so interpolation and the landmark editor can use saved
+// faces without requiring them to be re-exported first.
 export function withFeatureLandmarkFallbacks(featureLandmarks) {
   if (!featureLandmarks) {
     return defaultFeatureLandmarks;
@@ -234,6 +243,7 @@ export function withFeatureLandmarkFallbacks(featureLandmarks) {
         ...defaults,
         ...saved,
         moustache: { ...defaults.moustache, ...saved.moustache },
+        soulPatch: { ...defaults.soulPatch, ...saved.soulPatch },
         pecs: { ...defaults.pecs, ...saved.pecs }
       }];
     })
@@ -697,13 +707,15 @@ function solveFeatures(params, pose, structure) {
     left: projectReferencePoint(projectStructure, skull, pose.sign, reference.moustache.left, 60),
     right: projectReferencePoint(projectStructure, skull, pose.sign, reference.moustache.right, 60)
   };
+  const soulPatch = projectReferencePoint(projectStructure, skull, pose.sign, reference.soulPatch.root, 60);
 
   return {
     eyes,
     brows,
     nose,
     mouth,
-    moustache
+    moustache,
+    soulPatch
   };
 }
 
@@ -740,7 +752,7 @@ function solveFacialHair(params, pose, head, features) {
       ? makeMoustacheLocks(params, pose, features, color, shineColor)
       : []),
     ...(params.showSoulPatch
-      ? [makeSoulPatchLock(params, pose, head, features, color, shineColor)]
+      ? [makeSoulPatchLock(params, pose, features, color, shineColor)]
       : []),
     ...(params.showBeard
       ? makeBeardLocks(params, pose, head, features, color, shineColor)
@@ -841,20 +853,10 @@ function transformGeometryAlongAxis(value, origin, axis, scale) {
   );
 }
 
-function makeSoulPatchLock(params, pose, head, features, color, shineColor) {
-  const outline = head.baseOutline ?? head.outline;
-  const chin = outline.reduce(
-    (lowest, point) => point.y > lowest.y ? point : lowest,
-    outline[0]
-  );
-  const base = {
-    x: lerp(features.mouth.mid.x, chin.x, 0.5),
-    y: lerp(features.mouth.mid.y, chin.y, 0.5)
-  };
-
+function makeSoulPatchLock(params, pose, features, color, shineColor) {
   return makeHairV2Lock({
     index: SOUL_PATCH_LOCK_SEED,
-    base,
+    base: features.soulPatch,
     direction: { x: 0, y: 1 },
     params,
     lengthOverride: params.beardLength,
@@ -2557,6 +2559,9 @@ function blendReferencePose(fromPose, toPose, amount) {
     moustache: {
       left: blendPair(fromPose.moustache.left, toPose.moustache.left, amount),
       right: blendPair(fromPose.moustache.right, toPose.moustache.right, amount)
+    },
+    soulPatch: {
+      root: blendPair(fromPose.soulPatch.root, toPose.soulPatch.root, amount)
     },
     pecs: {
       left: blendPair(fromPose.pecs.left, toPose.pecs.left, amount),

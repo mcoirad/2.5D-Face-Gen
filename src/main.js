@@ -34,7 +34,8 @@ const landmarkLabels = {
   mid: "Mid",
   right: "Right",
   moustacheLeft: "Moustache left root",
-  moustacheRight: "Moustache right root"
+  moustacheRight: "Moustache right root",
+  soulPatchRoot: "Soul patch root"
 };
 const controlGroups = [
   {
@@ -578,6 +579,7 @@ function createPoseEditor(poseKey) {
 
   fields.appendChild(createPointEditor("feature", poseKey, "left", landmarkLabels.moustacheLeft, null, "moustache"));
   fields.appendChild(createPointEditor("feature", poseKey, "right", landmarkLabels.moustacheRight, null, "moustache"));
+  fields.appendChild(createPointEditor("feature", poseKey, "root", landmarkLabels.soulPatchRoot, null, "soulPatch"));
 
   ["left", "mid", "right"].forEach(pointKey => {
     fields.appendChild(createPointEditor("feature", poseKey, pointKey, landmarkLabels[pointKey], null, "mouth"));

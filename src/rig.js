@@ -104,6 +104,10 @@ export const defaultFeatureLandmarks = {
     soulPatch: {
       root: [-0.84, 1.12]
     },
+    ears: {
+      topX: 0.3467,
+      bottomX: 0.3476
+    },
     pecs: {
       left: [-0.45, 0.12],
       right: [-0.25, 0.12]
@@ -226,7 +230,7 @@ export function solveFaceRig(params) {
   };
 }
 
-// Older sessions can predate pec or facial-hair landmarks. Deep-merge those
+// Older sessions can predate ear, pec, or facial-hair landmarks. Deep-merge those
 // families pose-by-pose so interpolation and the landmark editor can use saved
 // faces without requiring them to be re-exported first.
 export function withFeatureLandmarkFallbacks(featureLandmarks) {
@@ -244,6 +248,7 @@ export function withFeatureLandmarkFallbacks(featureLandmarks) {
         ...saved,
         moustache: { ...defaults.moustache, ...saved.moustache },
         soulPatch: { ...defaults.soulPatch, ...saved.soulPatch },
+        ...(defaults.ears ? { ears: { ...defaults.ears, ...saved.ears } } : {}),
         pecs: { ...defaults.pecs, ...saved.pecs }
       }];
     })
@@ -2169,40 +2174,47 @@ function solveArmor(params, pose, structure, body) {
 }
 
 // Each ear is a three-point polygon: a straight, unstroked edge attached to the
-// side of the face (top at the eye line, bottom at the nose tip) plus an outward
-// apex. The attach points sit exactly where those Y lines cross the actual head
-// outline, so the ear roots on the face contour and rides it as the outline
-// reshapes with yaw and pitch. The near side (opposite the nose) fills out with
-// the turn while the far side collapses; and once the head has turned past a
-// threshold both ears drop behind the head in the draw order.
+// side of the face plus an outward apex. Through 3/4 view the roots follow the
+// real outline; from there they converge on one authored profile attachment.
+// Pitch scales the pitch-zero eye-to-nose height explicitly, instead of letting
+// the eyes' and nose's different depths change the ear size accidentally.
 const EAR_BEHIND_YAW = 0.3;
+const EAR_PROFILE_BLEND_START = 0.5;
+const EAR_ATTACH_OVERLAP = 2;
+const EAR_NEGATIVE_PITCH_HEIGHT_RATIO = 0.5;
+const EAR_POSITIVE_PITCH_HEIGHT_RATIO = 0.8;
+const EAR_PITCH_LIMIT = 0.5;
 
 function solveEars(params, pose, structure, features, outline) {
   const skull = structure.skull;
   const lowerFace = structure.lowerFace;
-
-  // Vertical anchors taken directly from the already-projected features, so the
-  // attach edge is exactly eye-line to nose-tip.
-  const topY = (features.eyes[0].center.y + features.eyes[1].center.y) / 2;
-  const bottomY = features.nose.tip.y;
-  const edgeH = Math.max(20, bottomY - topY);
+  const eyeCenter = averageProjectedPoints(features.eyes[0].center, features.eyes[1].center);
+  const neutralEye = unprojectStructurePoint(eyeCenter, params.pitch);
+  const neutralNose = unprojectStructurePoint(features.nose.tip, params.pitch);
+  const neutralGap = Math.max(20, neutralNose.y - neutralEye.y);
+  const neutralCenter = averageProjectedPoints(neutralEye, neutralNose);
+  const projectStructure = createStructureProjector(params);
+  const projectedCenter = projectStructure(0, neutralCenter.y, neutralCenter.z);
+  const edgeH = neutralGap * earPitchHeightRatio(params.pitch);
+  const topY = projectedCenter.y - edgeH / 2;
+  const bottomY = projectedCenter.y + edgeH / 2;
   const apexY = topY - edgeH * 0.4;
-
   const frontWidth = 1 - params.earFlatten;
-
-  // Cheat: once the head has clearly turned, drop both ears behind the head so
-  // they read as attached to the side/back of the head rather than floating over
-  // the face, instead of trying to layer each ear individually.
-  const layer = pose.amount > EAR_BEHIND_YAW ? "back" : "front";
+  const profileBlend = smoothstep(EAR_PROFILE_BLEND_START, 1, pose.amount);
+  const sideEars = withFeatureLandmarkFallbacks(params.featureLandmarks).side.ears;
+  const profileTopX = 250 + pose.sign * sideEars.topX * skull.rx;
+  const profileBottomX = 250 + pose.sign * sideEars.bottomX * skull.rx;
 
   const buildEar = screenSide => {
     // Attach where each Y line crosses the real face outline (falling back to the
     // head ellipse if it somehow misses), so the roots land on the contour and
     // move with it under yaw/pitch.
-    const topX = outlineEdgeX(outline, topY, screenSide)
-      ?? (250 + screenSide * headHalfWidthAtY(skull, lowerFace, topY - 250));
-    const bottomX = outlineEdgeX(outline, bottomY, screenSide)
-      ?? (250 + screenSide * headHalfWidthAtY(skull, lowerFace, bottomY - 250));
+    const topOutlineX = outlineEdgeX(outline, topY, screenSide)
+      ?? fallbackHeadEdgeX(skull, lowerFace, topY, screenSide, params.pitch);
+    const bottomOutlineX = outlineEdgeX(outline, bottomY, screenSide)
+      ?? fallbackHeadEdgeX(skull, lowerFace, bottomY, screenSide, params.pitch);
+    const topX = lerp(topOutlineX, profileTopX, profileBlend);
+    const bottomX = lerp(bottomOutlineX, profileBottomX, profileBlend);
 
     // Near side (opposite the nose = back of head) fills out with the turn; the
     // far side collapses so it never pokes past the head. earFlatten (0..1) =
@@ -2212,10 +2224,17 @@ function solveEars(params, pose, structure, features, outline) {
       ? frontWidth + pose.amount * (1 - frontWidth)
       : frontWidth * (1 - pose.amount);
     const apexOut = params.earStickOut * width;
+    const layer = pose.amount > EAR_PROFILE_BLEND_START
+      ? (faces > 0 ? "front" : "back")
+      : (pose.amount > EAR_BEHIND_YAW ? "back" : "front");
 
     return {
       topAttach: { x: topX, y: topY },
       bottomAttach: { x: bottomX, y: bottomY },
+      attachControl: {
+        x: (topX + bottomX) / 2 - screenSide * EAR_ATTACH_OVERLAP,
+        y: (topY + bottomY) / 2
+      },
       apex: { x: topX + screenSide * apexOut, y: apexY },
       curve: params.earCurve,
       fill: params.skinColor,
@@ -2224,6 +2243,44 @@ function solveEars(params, pose, structure, features, outline) {
   };
 
   return { left: buildEar(-1), right: buildEar(1) };
+}
+
+function averageProjectedPoints(a, b) {
+  return {
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
+    z: ((a.z ?? a.depth) + (b.z ?? b.depth)) / 2
+  };
+}
+
+// Inverse of createStructureProjector's pitch rotation. This recovers the
+// pitch-zero model-space Y/Z values without re-solving the facial features.
+function unprojectStructurePoint(point, pitch) {
+  const cp = Math.cos(pitch);
+  const sp = Math.sin(pitch);
+  const screenY = point.y - 250;
+  const depth = point.z ?? point.depth;
+
+  return {
+    x: point.x - 250,
+    y: screenY * cp + depth * sp,
+    z: -screenY * sp + depth * cp
+  };
+}
+
+function earPitchHeightRatio(pitch) {
+  const normalized = clamp(pitch / EAR_PITCH_LIMIT, -1, 1);
+
+  return normalized < 0
+    ? lerp(1, EAR_NEGATIVE_PITCH_HEIGHT_RATIO, -normalized)
+    : lerp(1, EAR_POSITIVE_PITCH_HEIGHT_RATIO, normalized);
+}
+
+function fallbackHeadEdgeX(skull, lowerFace, screenY, screenSide, pitch) {
+  const cp = Math.cos(pitch);
+  const modelY = Math.abs(cp) > 1e-6 ? (screenY - 250) / cp : screenY - 250;
+
+  return 250 + screenSide * headHalfWidthAtY(skull, lowerFace, modelY);
 }
 
 // X where the horizontal line at `y` crosses the outline polygon, on the given
@@ -2908,16 +2965,17 @@ function makeEye(project, side, x, y, size, widthScale, visible) {
 }
 
 function makeBrow(project, x, y, params, visible, anatomicalSide, poseSignValue, eye, fillColor) {
-  const halfWidth = 20;
+  const defaultHalfWidth = 20;
+  const halfWidth = params.eyebrowLength / 2;
   const baseHalfHeight = Math.max(0.5, params.eyebrowHeight / 2);
   const sharpen = clamp(params.eyebrowSharpen, -1, 1);
   const halfInnerHeight = Math.max(0, baseHalfHeight * (sharpen < 0 ? 1 + sharpen : 1));
   const halfOuterHeight = Math.max(0, baseHalfHeight * (sharpen > 0 ? 1 - sharpen : 1));
   const tilt = params.eyebrowTilt;
-  const curveOffset = params.eyebrowCurve * halfWidth * 0.65;
+  const curveOffset = params.eyebrowCurve * defaultHalfWidth * 0.65;
   const outwardSign = anatomicalSide * poseSignValue;
   const browY = y + params.eyebrowY;
-  const centerlineY = localX => -tilt * 20 * (localX / halfWidth);
+  const centerlineY = localX => -tilt * defaultHalfWidth * (localX / halfWidth);
   const innerX = -halfWidth;
   const outerX = halfWidth;
   const localPoints = {

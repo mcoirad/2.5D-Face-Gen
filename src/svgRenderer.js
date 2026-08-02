@@ -230,14 +230,15 @@ function renderEars(ears, layer) {
 // unstroked attach edge closing the fill. The stroke path covers only the two
 // curved edges so the face-attached edge stays strokeless.
 function renderEar(ear) {
-  const { topAttach, bottomAttach, apex, curve, fill } = ear;
+  const { topAttach, bottomAttach, attachControl, apex, curve, fill } = ear;
   const centroid = scalePoint(addPoints(addPoints(topAttach, bottomAttach), apex), 1 / 3);
   const cTop = earEdgeControl(topAttach, apex, centroid, curve);
   const cBot = earEdgeControl(apex, bottomAttach, centroid, curve);
 
   const fillD =
     `M ${topAttach.x} ${topAttach.y} Q ${cTop.x} ${cTop.y} ${apex.x} ${apex.y}` +
-    ` Q ${cBot.x} ${cBot.y} ${bottomAttach.x} ${bottomAttach.y} Z`;
+    ` Q ${cBot.x} ${cBot.y} ${bottomAttach.x} ${bottomAttach.y}` +
+    ` Q ${attachControl.x} ${attachControl.y} ${topAttach.x} ${topAttach.y} Z`;
   const strokeD =
     `M ${topAttach.x} ${topAttach.y} Q ${cTop.x} ${cTop.y} ${apex.x} ${apex.y}` +
     ` Q ${cBot.x} ${cBot.y} ${bottomAttach.x} ${bottomAttach.y}`;

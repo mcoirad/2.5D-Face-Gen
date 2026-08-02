@@ -35,7 +35,9 @@ const landmarkLabels = {
   right: "Right",
   moustacheLeft: "Moustache left root",
   moustacheRight: "Moustache right root",
-  soulPatchRoot: "Soul patch root"
+  soulPatchRoot: "Soul patch root",
+  earTopX: "Ear top X",
+  earBottomX: "Ear bottom X"
 };
 const controlGroups = [
   {
@@ -155,6 +157,7 @@ const controlGroups = [
     keys: [
       "eyebrowTilt",
       "eyebrowY",
+      "eyebrowLength",
       "eyebrowHeight",
       "eyebrowCurve",
       "eyebrowSharpen",
@@ -585,6 +588,11 @@ function createPoseEditor(poseKey) {
     fields.appendChild(createPointEditor("feature", poseKey, pointKey, landmarkLabels[pointKey], null, "mouth"));
   });
 
+  if (poseKey === "side") {
+    fields.appendChild(createScalarLandmarkEditor(poseKey, "topX", landmarkLabels.earTopX, "ears"));
+    fields.appendChild(createScalarLandmarkEditor(poseKey, "bottomX", landmarkLabels.earBottomX, "ears"));
+  }
+
   poseEditor.appendChild(fields);
 
   return poseEditor;
@@ -637,6 +645,31 @@ function createPointEditor(groupKey, poseKey, pointKey, label, index = null, fam
 
       render();
     });
+  });
+
+  return row;
+}
+
+function createScalarLandmarkEditor(poseKey, pointKey, label, family) {
+  const row = document.createElement("div");
+  row.className = "landmark-row";
+  row.innerHTML = `
+    <span class="landmark-name">${label}</span>
+    <label>
+      <span>x</span>
+      <input
+        type="number"
+        step="0.01"
+        min="-2"
+        max="2"
+        value="${params.featureLandmarks[poseKey][family][pointKey]}"
+      >
+    </label>
+  `;
+
+  row.querySelector("input").addEventListener("input", event => {
+    params.featureLandmarks[poseKey][family][pointKey] = Number(event.target.value);
+    render();
   });
 
   return row;

@@ -39,8 +39,8 @@ export const defaultFeatureLandmarks = {
       right: [0.1505, 1.1889]
     },
     moustache: {
-      left: [-0.0737, 1.1264],
-      right: [0.1063, 1.1264]
+      left: [-0.0737, 1.19],
+      right: [0.1063, 1.19]
     },
     // pecs are torso-anchored (fraction of orbitRadius / torsoLength, see
     // solveBody), not skull-anchored like the rest of this table - only the
@@ -67,8 +67,8 @@ export const defaultFeatureLandmarks = {
       right: [-0.1241, 1.1625]
     },
     moustache: {
-      left: [-0.5211, 1.1148],
-      right: [-0.4136, 1.1148]
+      left: [-0.58, 1.17],
+      right: [-0.32, 1.17]
     },
     pecs: {
       left: [-0.75, 0.1],
@@ -92,8 +92,8 @@ export const defaultFeatureLandmarks = {
       right: [-0.8422+ 0.05, 1.1723 - 0.06]
     },
     moustache: {
-      left: [-1.1163, 1.2011],
-      right: [-1.0813, 1.2011]
+      left: [-1.16, 1.2011],
+      right: [-1.02, 1.2011]
     },
     pecs: {
       left: [-0.45, 0.12],

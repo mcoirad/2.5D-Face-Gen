@@ -759,14 +759,11 @@ function makeMoustacheLocks(params, pose, features, color, shineColor) {
   const centerX = (roots[0].x + roots[1].x) / 2;
 
   return roots.flatMap((root, index) => {
-    // Moustache culling follows the projected left/right lock, so mirrored
-    // poses remove the opposite screen-side lock instead of the same landmark.
+    // Moustache layering follows the projected left/right lock, so mirrored
+    // poses send the opposite screen-side lock behind the head.
     const lateralPosition = index === 0 ? -1 : 1;
     const depthPosition = facialHairDepthPosition(lateralPosition, pose.yaw);
-
-    if (isFacialHairDepthHidden(depthPosition)) {
-      return [];
-    }
+    const layer = isFacialHairDepthHidden(depthPosition) ? "back" : "front";
 
     const screenSide = Math.sign(root.x - centerX) || 1;
     const direction = normalizePoint({ x: screenSide, y: 0.15 });
@@ -781,7 +778,8 @@ function makeMoustacheLocks(params, pose, features, color, shineColor) {
       shineColor,
       curveMirror: screenSide,
       sidePosition: screenSide,
-      depthPosition
+      depthPosition,
+      layer
     })];
   });
 }

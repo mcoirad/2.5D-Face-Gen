@@ -723,6 +723,8 @@ const BEARD_LOCK_SEED = 20000;
 const SOUL_PATCH_LOCK_SEED = 30000;
 const BEARD_CHIN_COVERAGE = 0.15;
 const BEARD_ROOT_LIFT = 8;
+const MOUSTACHE_FAR_SCALE_START_YAW = 0.15;
+const MOUSTACHE_FAR_MIN_LONGITUDINAL_SCALE = 0.08;
 const FACIAL_HAIR_HIDE_DEPTH_THRESHOLD = -Math.SQRT1_2;
 const FACIAL_HAIR_DEPTH_EPSILON = 1e-9;
 
@@ -759,16 +761,23 @@ function makeMoustacheLocks(params, pose, features, color, shineColor) {
   const centerX = (roots[0].x + roots[1].x) / 2;
 
   return roots.flatMap((root, index) => {
-    // Moustache layering follows the projected left/right lock, so mirrored
-    // poses send the opposite screen-side lock behind the head.
+    // Screen-side identity controls which projected lock shortens as the pose
+    // mirrors, but both moustache locks remain in the front rendering pass.
     const lateralPosition = index === 0 ? -1 : 1;
     const depthPosition = facialHairDepthPosition(lateralPosition, pose.yaw);
-    const layer = isFacialHairDepthHidden(depthPosition) ? "back" : "front";
 
     const screenSide = Math.sign(root.x - centerX) || 1;
     const direction = normalizePoint({ x: screenSide, y: 0.15 });
+    const isFarSide = screenSide * pose.yaw < 0;
+    const longitudinalScale = isFarSide
+      ? lerp(
+          1,
+          MOUSTACHE_FAR_MIN_LONGITUDINAL_SCALE,
+          smoothstep(MOUSTACHE_FAR_SCALE_START_YAW, 1, Math.abs(pose.yaw))
+        )
+      : 1;
 
-    return [makeHairV2Lock({
+    const result = makeHairV2Lock({
       index: MOUSTACHE_LOCK_SEED,
       base: root,
       direction,
@@ -779,9 +788,57 @@ function makeMoustacheLocks(params, pose, features, color, shineColor) {
       curveMirror: screenSide,
       sidePosition: screenSide,
       depthPosition,
-      layer
-    })];
+      layer: "front"
+    });
+
+    return [scaleLockGeometryLongitudinally(result, root, direction, longitudinalScale)];
   });
+}
+
+// Compress a completed lock along its own travel axis while preserving every
+// perpendicular offset. This keeps the curl and lock width readable as the
+// far moustache shortens, and because coordinates are rewritten rather than
+// SVG-scaled, stroke width remains unchanged.
+function scaleLockGeometryLongitudinally(result, origin, axis, scale) {
+  if (scale >= 1) {
+    return result;
+  }
+
+  return {
+    lock: transformGeometryAlongAxis(result.lock, origin, axis, scale),
+    shine: result.shine
+      ? transformGeometryAlongAxis(result.shine, origin, axis, scale)
+      : null
+  };
+}
+
+function transformGeometryAlongAxis(value, origin, axis, scale) {
+  if (Array.isArray(value)) {
+    return value.map(item => transformGeometryAlongAxis(item, origin, axis, scale));
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  if (Number.isFinite(value.x) && Number.isFinite(value.y)) {
+    const offset = subtractPoints(value, origin);
+    const longitudinalDistance = offset.x * axis.x + offset.y * axis.y;
+    const adjustment = longitudinalDistance * (scale - 1);
+
+    return {
+      ...value,
+      x: value.x + axis.x * adjustment,
+      y: value.y + axis.y * adjustment
+    };
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      transformGeometryAlongAxis(item, origin, axis, scale)
+    ])
+  );
 }
 
 function makeSoulPatchLock(params, pose, head, features, color, shineColor) {

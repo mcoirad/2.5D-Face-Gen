@@ -1,4 +1,5 @@
 import { clamp, lerp, smoothstep } from "./geometry.js";
+import { resolveHairV2LengthScale } from "./hairV2Profiles.js";
 import {
   addPoints,
   createStructureProjector,
@@ -290,6 +291,7 @@ function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color
     base,
     direction,
     params,
+    lengthOverride: params.hairV2LockLength * resolveHairV2LengthScale(params, u, v),
     color,
     shineColor,
     curveMirror

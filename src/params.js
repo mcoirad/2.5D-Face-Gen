@@ -1,3 +1,5 @@
+import { HAIR_V2_LENGTH_PRESET_OPTIONS } from "./hairV2Profiles.js";
+
 export const defaultParams = {
   yaw: 0,
   pitch: 0,
@@ -93,6 +95,16 @@ export const defaultParams = {
   hairV2LockCount: 40,
   hairV2LockWidth: 60,
   hairV2LockLength: 120,
+  hairV2LengthPreset: "uniform",
+  hairV2CrownLengthScale: 1,
+  hairV2FrontLengthScale: 1,
+  hairV2SideLengthScale: 1,
+  hairV2BackLengthScale: 1,
+  hairV2FringeWidth: 0,
+  hairV2FringeCenterLengthScale: 1,
+  hairV2FringeEdgeLengthScale: 1,
+  hairV2FringeBias: 0,
+  hairV2FaceFrameLengthScale: 1,
   hairV2LockRootRound: 0.6,
   hairV2PartOffset: 0,
   hairV2PartLength: 0.6,
@@ -302,6 +314,15 @@ export const sliderConfig = {
   hairV2LockCount: [12, 60, 1],
   hairV2LockWidth: [20, 120, 1],
   hairV2LockLength: [40, 220, 1],
+  hairV2CrownLengthScale: [0.25, 2, 0.01],
+  hairV2FrontLengthScale: [0.25, 2, 0.01],
+  hairV2SideLengthScale: [0.25, 2, 0.01],
+  hairV2BackLengthScale: [0.25, 2, 0.01],
+  hairV2FringeWidth: [0, 1, 0.01],
+  hairV2FringeCenterLengthScale: [0.25, 2, 0.01],
+  hairV2FringeEdgeLengthScale: [0.25, 2, 0.01],
+  hairV2FringeBias: [-0.75, 0.75, 0.01],
+  hairV2FaceFrameLengthScale: [0.25, 2, 0.01],
   hairV2LockRootRound: [0, 1, 0.01],
   hairV2PartOffset: [-1, 1, 0.01],
   hairV2PartLength: [0, 1, 0.01],
@@ -323,6 +344,7 @@ export const sliderConfig = {
 };
 
 export const selectConfig = {
+  hairV2LengthPreset: HAIR_V2_LENGTH_PRESET_OPTIONS,
   hairRenderMode: [
     ["locks", "Locks"],
     ["strands", "Strands"],

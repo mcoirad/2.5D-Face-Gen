@@ -1,4 +1,9 @@
 import { colorConfig, defaultParams, selectConfig, sliderConfig, toggleConfig } from "./params.js";
+import {
+  applyHairV2LengthPreset,
+  HAIR_V2_LENGTH_PROFILE_KEYS,
+  normalizeHairV2LengthPreset
+} from "./hairV2Profiles.js";
 import { defaultFeatureLandmarks, defaultOutlineLandmarks, solveFaceRig, withFeatureLandmarkFallbacks } from "./rig.js";
 import { renderFaceSvg } from "./svgRenderer.js";
 import {
@@ -249,6 +254,16 @@ const controlGroups = [
       "hairV2LockCount",
       "hairV2LockWidth",
       "hairV2LockLength",
+      "hairV2LengthPreset",
+      "hairV2CrownLengthScale",
+      "hairV2FrontLengthScale",
+      "hairV2SideLengthScale",
+      "hairV2BackLengthScale",
+      "hairV2FringeWidth",
+      "hairV2FringeCenterLengthScale",
+      "hairV2FringeEdgeLengthScale",
+      "hairV2FringeBias",
+      "hairV2FaceFrameLengthScale",
       "hairV2LockRootRound",
       "hairV2PartOffset",
       "hairV2PartLength",
@@ -332,6 +347,11 @@ function randomizeSliders(keys, distribution = "uniform") {
     updateSliderControl(key);
   }
 
+  if (keys.some(key => HAIR_V2_LENGTH_PROFILE_KEYS.includes(key))) {
+    params.hairV2LengthPreset = "custom";
+    updateSelectControl("hairV2LengthPreset");
+  }
+
   render();
 }
 
@@ -345,6 +365,14 @@ function updateSliderControl(key) {
 
   if (valueLabel) {
     valueLabel.textContent = params[key];
+  }
+}
+
+function updateSelectControl(key) {
+  const input = document.getElementById(key);
+
+  if (input) {
+    input.value = params[key];
   }
 }
 
@@ -467,6 +495,12 @@ function createSliderControl(key) {
   label.querySelector("input").addEventListener("input", event => {
     params[key] = Number(event.target.value);
     document.getElementById(`${key}-value`).textContent = params[key];
+
+    if (HAIR_V2_LENGTH_PROFILE_KEYS.includes(key)) {
+      params.hairV2LengthPreset = "custom";
+      updateSelectControl("hairV2LengthPreset");
+    }
+
     render();
   });
 
@@ -488,7 +522,15 @@ function createSelectControl(key) {
   `;
 
   label.querySelector("select").addEventListener("change", event => {
-    params[key] = event.target.value;
+    const value = event.target.value;
+
+    if (key === "hairV2LengthPreset" && value !== "custom") {
+      applyHairV2LengthPreset(params, value);
+      HAIR_V2_LENGTH_PROFILE_KEYS.forEach(updateSliderControl);
+    } else {
+      params[key] = value;
+    }
+
     render();
   });
 
@@ -731,6 +773,8 @@ function applyParams(snapshot) {
       : structuredClone(defaultOutlineLandmarks),
     featureLandmarks: structuredClone(withFeatureLandmarkFallbacks(migratedSnapshot.featureLandmarks))
   };
+
+  restored.hairV2LengthPreset = normalizeHairV2LengthPreset(restored);
 
   Object.assign(params, restored);
 }

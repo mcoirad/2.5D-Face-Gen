@@ -99,20 +99,23 @@ test("ponytail does not override normal scalp base visibility or coverage", () =
     showHairV2Ponytail: true,
     showHairV2ScalpBase: false
   }).hairV2;
-  const lowCoverage = solveRig({
-    showHairV2Ponytail: true,
-    showHairV2ScalpBase: true,
-    hairV2ScalpBaseCoverage: 0.1
-  }).hairV2;
-  const highCoverage = solveRig({
-    showHairV2Ponytail: true,
-    showHairV2ScalpBase: true,
-    hairV2ScalpBaseCoverage: 0.9
-  }).hairV2;
 
   assert.deepEqual(hidden.scalpBase, []);
-  assert.equal(lowCoverage.scalpBase.length, highCoverage.scalpBase.length);
-  assert.notDeepEqual(lowCoverage.scalpBase, highCoverage.scalpBase);
+
+  for (const coverage of [0.1, 0.9]) {
+    const loose = solveRig({
+      showHairV2Ponytail: false,
+      showHairV2ScalpBase: true,
+      hairV2ScalpBaseCoverage: coverage
+    }).hairV2;
+    const alongside = solveRig({
+      showHairV2Ponytail: true,
+      showHairV2ScalpBase: true,
+      hairV2ScalpBaseCoverage: coverage
+    }).hairV2;
+
+    assert.deepEqual(alongside.scalpBase, loose.scalpBase);
+  }
 });
 
 test("height, length, width, and swing control the independent tail", () => {

@@ -72,7 +72,7 @@ const HAIR_SHINE_MAX_WIDTH_FRACTION = 0.92;
 export function createHairV2Scalp(params, pose, structure) {
   const projectStructure = createStructureProjector(params);
   const { skull } = structure;
-  return (u, v) => scalpPoint(u, v, projectStructure, skull, pose);
+  return (u, v) => scalpPoint(u, v, projectStructure, skull, pose, params.pitch);
 }
 
 export function solveHairV2(params, pose, structure, attraction = null) {
@@ -203,9 +203,7 @@ export function solveHeadband(params, pose, structure) {
     return null;
   }
 
-  const projectStructure = createStructureProjector(params);
-  const { skull } = structure;
-  const scalp = (u, v) => scalpPoint(u, v, projectStructure, skull, pose);
+  const scalp = createHairV2Scalp(params, pose, structure);
   const color = resolveHairColor(params, "hairV2HeadbandColor");
 
   return {
@@ -216,24 +214,33 @@ export function solveHeadband(params, pose, structure) {
 // Continuous scalp surface: u = head-fixed longitude (0 = front centre, +/- = sides
 // and around to the back), v = latitude from crown (0) to hairline (1). Returns the
 // projected screen point plus depthPosition (>0 faces the viewer, <0 is behind the head).
-function scalpPoint(u, v, projectStructure, skull, pose) {
+function scalpPoint(u, v, projectStructure, skull, pose, pitch) {
   const headLongitude = u * Math.PI / 2;
   const guideAngle = headLongitude - pose.yaw * Math.PI / 2;
   const sidePosition = Math.sin(guideAngle);
-  const depthPosition = Math.cos(guideAngle);
+  const yawDepth = Math.cos(guideAngle);
   const backness = clamp((1 - Math.cos(headLongitude)) / 2, 0, 1);
   const hairlineTheta = lerp(FRONT_HAIRLINE_THETA, BACK_HAIRLINE_THETA, backness);
   const theta = lerp(-Math.PI / 2, hairlineTheta, v);
+  // Longitude has no radius at the crown, so both its horizontal and depth
+  // components must collapse there. Keeping depth constant made coincident
+  // crown roots separate vertically as soon as pitch projected z into y.
+  const radialScale = Math.cos(theta);
+  // Rotate the spherical scalp normal through the same pitch transform used
+  // for positions. This tells the renderer which surface is camera-facing;
+  // sidePosition intentionally stays yaw-only for the existing light model.
+  const facing = Math.sin(theta) * Math.sin(pitch)
+    + radialScale * yawDepth * Math.cos(pitch);
   const projected = projectStructure(
-    Math.cos(theta) * skull.rx * sidePosition,
+    radialScale * skull.rx * sidePosition,
     skull.cy + Math.sin(theta) * skull.ry,
-    SCALP_Z * depthPosition
+    SCALP_Z * radialScale * yawDepth
   );
 
   return {
     x: projected.x,
     y: projected.y,
-    depthPosition,
+    depthPosition: facing,
     sidePosition
   };
 }

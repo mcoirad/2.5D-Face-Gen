@@ -6,6 +6,7 @@ import {
   smoothstep
 } from "./geometry.js";
 import { makeHairV2Lock, solveHairV2, solveHeadband } from "./hairV2.js";
+import { solvePonytail } from "./ponytail.js";
 
 const FACE_CENTER_Y = 10;
 const DEFAULTS = {
@@ -203,6 +204,14 @@ export function solveFaceRig(params) {
 
   const body = solveBody(params, pose, head.structure);
   const facialHair = solveFacialHair(params, pose, head, features);
+  const ponytail = solvePonytail(params, pose, head.structure);
+  const ponytailAttraction = ponytail && params.hairV2PonytailAttractionArea > 0
+    ? {
+        area: params.hairV2PonytailAttractionArea,
+        tiePoint: ponytail.tiePoint,
+        tieV: ponytail.tieV
+      }
+    : null;
 
   return {
     showGuides: params.showGuides,
@@ -218,7 +227,10 @@ export function solveFaceRig(params) {
     },
     head,
     hair: solveHair(params, pose, head.structure),
-    hairV2: params.showHairV2 ? solveHairV2(params, pose, head.structure) : null,
+    hairV2: params.showHairV2
+      ? solveHairV2(params, pose, head.structure, ponytailAttraction)
+      : null,
+    ponytail,
     facialHair,
     headband: solveHeadband(params, pose, head.structure),
     body,

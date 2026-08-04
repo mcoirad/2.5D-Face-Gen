@@ -298,6 +298,7 @@ const controlGroups = [
       "hairV2PonytailWidth",
       "hairV2PonytailLift",
       "hairV2PonytailSwing",
+      "hairV2PonytailAttractionArea",
       "hairV2PonytailTieColor"
     ],
     open: true

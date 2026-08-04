@@ -126,9 +126,8 @@ export function normalizeHairV2LengthPreset(params) {
   return matchesHairV2LengthPreset(params, presetName) ? presetName : "custom";
 }
 
-// Shared head-fixed style regions. Length profiling uses these masks to shape
-// fringe and face-framing locks; gathered styles use the same masks to decide
-// which deliberately loose locks should remain outside the gather.
+// Shared head-fixed style regions used by length profiling to shape fringe
+// and face-framing locks consistently across presets.
 export function resolveHairV2StyleMasks(params, u, v) {
   const absU = clamp(Math.abs(u), 0, 2);
   const fringeWidth = clamp(params.hairV2FringeWidth, 0, 1);

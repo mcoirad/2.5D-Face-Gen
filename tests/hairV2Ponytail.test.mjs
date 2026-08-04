@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ponytailTailWidthAt } from "../src/hairV2.js";
-import { HAIR_V2_LENGTH_PRESETS } from "../src/hairV2Profiles.js";
+import {
+  hairV2PonytailAttractionDistance
+} from "../src/hairV2.js";
 import { defaultParams } from "../src/params.js";
+import { ponytailTailWidthAt } from "../src/ponytail.js";
 import {
   defaultFeatureLandmarks,
   defaultOutlineLandmarks,
@@ -23,8 +25,12 @@ function makeParams(overrides = {}) {
   };
 }
 
-function solveHair(overrides = {}) {
-  return solveFaceRig(makeParams(overrides)).hairV2;
+function solveRig(overrides = {}) {
+  return solveFaceRig(makeParams(overrides));
+}
+
+function solvePonytail(overrides = {}) {
+  return solveRig({ showHairV2Ponytail: true, ...overrides }).ponytail;
 }
 
 function assertFiniteGeometry(value, path = "geometry") {
@@ -47,53 +53,84 @@ function assertFiniteGeometry(value, path = "geometry") {
   }
 }
 
-test("disabled ponytail preserves existing hair v2 output", () => {
-  const explicit = solveHair({ showHairV2Ponytail: false });
-  const legacyParams = makeParams();
-  delete legacyParams.showHairV2Ponytail;
-  delete legacyParams.hairV2PonytailHeight;
-  delete legacyParams.hairV2PonytailLength;
-  delete legacyParams.hairV2PonytailWidth;
-  delete legacyParams.hairV2PonytailLift;
-  delete legacyParams.hairV2PonytailSwing;
-  delete legacyParams.hairV2PonytailTieColor;
-  const legacy = solveFaceRig(legacyParams).hairV2;
+function attractedIndices(hairV2) {
+  return hairV2.locks.flatMap((lock, index) => lock.attracted ? [index] : []);
+}
 
-  assert.deepEqual(explicit, legacy);
-  assert.equal(explicit.ponytail, null);
+test("ponytail at attraction zero leaves complete hair v2 output unchanged", () => {
+  const baseline = solveRig({
+    showHairV2Ponytail: false,
+    hairV2PonytailAttractionArea: 0
+  });
+  const alongside = solveRig({
+    showHairV2Ponytail: true,
+    hairV2PonytailAttractionArea: 0
+  });
+
+  assert.deepEqual(alongside.hairV2, baseline.hairV2);
+  assert.ok(alongside.ponytail);
+  assert.equal("ponytail" in alongside.hairV2, false);
 });
 
-test("ponytail requires hair v2 and is suppressed by the helmet", () => {
-  assert.equal(
-    solveFaceRig(makeParams({ showHairV2: false, showHairV2Ponytail: true })).hairV2,
-    null
-  );
+test("ponytail is independent of hair v2 and temporarily suppressed by helmet", () => {
+  const independent = solveRig({
+    showHairV2: false,
+    showHairV2Ponytail: true
+  });
+  const helmet = solveRig({
+    showHairV2: false,
+    showHairV2Ponytail: true,
+    showHelmet: true
+  });
+  const restored = solveRig({
+    showHairV2: false,
+    showHairV2Ponytail: true,
+    showHelmet: false
+  });
 
-  const visible = solveHair({ showHairV2Ponytail: true });
-  const helmet = solveHair({ showHairV2Ponytail: true, showHelmet: true });
-  const ordinary = solveHair({ showHairV2Ponytail: false, showHelmet: true });
-
-  assert.ok(visible.ponytail);
+  assert.equal(independent.hairV2, null);
+  assert.ok(independent.ponytail);
   assert.equal(helmet.ponytail, null);
-  assert.deepEqual(helmet, ordinary);
+  assert.deepEqual(restored.ponytail, independent.ponytail);
 });
 
-test("height, length, width, and swing control the solved tail", () => {
-  const low = solveHair({ showHairV2Ponytail: true, hairV2PonytailHeight: 0 }).ponytail;
-  const high = solveHair({ showHairV2Ponytail: true, hairV2PonytailHeight: 1 }).ponytail;
+test("ponytail does not override normal scalp base visibility or coverage", () => {
+  const hidden = solveRig({
+    showHairV2Ponytail: true,
+    showHairV2ScalpBase: false
+  }).hairV2;
+  const lowCoverage = solveRig({
+    showHairV2Ponytail: true,
+    showHairV2ScalpBase: true,
+    hairV2ScalpBaseCoverage: 0.1
+  }).hairV2;
+  const highCoverage = solveRig({
+    showHairV2Ponytail: true,
+    showHairV2ScalpBase: true,
+    hairV2ScalpBaseCoverage: 0.9
+  }).hairV2;
+
+  assert.deepEqual(hidden.scalpBase, []);
+  assert.equal(lowCoverage.scalpBase.length, highCoverage.scalpBase.length);
+  assert.notDeepEqual(lowCoverage.scalpBase, highCoverage.scalpBase);
+});
+
+test("height, length, width, and swing control the independent tail", () => {
+  const low = solvePonytail({ hairV2PonytailHeight: 0 });
+  const high = solvePonytail({ hairV2PonytailHeight: 1 });
   assert.ok(high.tiePoint.y < low.tiePoint.y);
 
-  const short = solveHair({ showHairV2Ponytail: true, hairV2PonytailLength: 60 }).ponytail;
-  const long = solveHair({ showHairV2Ponytail: true, hairV2PonytailLength: 280 }).ponytail;
+  const short = solvePonytail({ hairV2PonytailLength: 60 });
+  const long = solvePonytail({ hairV2PonytailLength: 280 });
   assert.ok(long.tailMass.spinePoints.at(-1).y > short.tailMass.spinePoints.at(-1).y);
 
-  const narrow = solveHair({ showHairV2Ponytail: true, hairV2PonytailWidth: 30 }).ponytail;
-  const wide = solveHair({ showHairV2Ponytail: true, hairV2PonytailWidth: 150 }).ponytail;
+  const narrow = solvePonytail({ hairV2PonytailWidth: 30 });
+  const wide = solvePonytail({ hairV2PonytailWidth: 150 });
   assert.ok(Math.max(...wide.tailMass.widthSamples) > Math.max(...narrow.tailMass.widthSamples));
 
-  const left = solveHair({ showHairV2Ponytail: true, hairV2PonytailSwing: -1 }).ponytail;
-  const center = solveHair({ showHairV2Ponytail: true, hairV2PonytailSwing: 0 }).ponytail;
-  const right = solveHair({ showHairV2Ponytail: true, hairV2PonytailSwing: 1 }).ponytail;
+  const left = solvePonytail({ hairV2PonytailSwing: -1 });
+  const center = solvePonytail({ hairV2PonytailSwing: 0 });
+  const right = solvePonytail({ hairV2PonytailSwing: 1 });
   const leftTip = left.tailMass.spinePoints.at(-1);
   const centerTip = center.tailMass.spinePoints.at(-1);
   const rightTip = right.tailMass.spinePoints.at(-1);
@@ -106,11 +143,10 @@ test("swing and rear projection remain continuous and finite across yaw", () => 
   let previousTip = null;
 
   for (const yaw of [-1, -0.5, 0, 0.5, 1]) {
-    const ponytail = solveHair({
-      showHairV2Ponytail: true,
+    const ponytail = solvePonytail({
       hairV2PonytailSwing: 0.4,
       yaw
-    }).ponytail;
+    });
     const tip = ponytail.tailMass.spinePoints.at(-1);
 
     assertFiniteGeometry(ponytail);
@@ -119,24 +155,6 @@ test("swing and rear projection remain continuous and finite across yaw", () => 
     }
     previousTip = tip;
   }
-});
-
-test("gathered ribbons compress by distance and converge beneath the tie", () => {
-  const ponytail = solveHair({ showHairV2Ponytail: true }).ponytail;
-  const backRuns = ponytail.gatheredRibbons.filter(ribbon => ribbon.layer === "back");
-
-  assert.equal(backRuns.length, 6);
-  for (const ribbon of backRuns) {
-    assert.ok(ribbon.widthSamples[0] > ribbon.widthSamples.at(-1));
-    assert.ok(ribbon.widthSamples.at(-1) > 0);
-    const endpoint = ribbon.spinePoints.at(-1);
-    assert.ok(Math.hypot(
-      endpoint.x - ponytail.tiePoint.x,
-      endpoint.y - ponytail.tiePoint.y
-    ) < EPSILON);
-  }
-
-  assert.ok(new Set(backRuns.map(ribbon => ribbon.widthSamples[0].toFixed(4))).size > 1);
 });
 
 test("tail width expands after the tie and reaches zero at the tip", () => {
@@ -153,73 +171,118 @@ test("tail width expands after the tie and reaches zero at the tip", () => {
   assert.ok(samples.every(width => Number.isFinite(width) && width >= 0));
 });
 
-test("fully gathered hair retains only explicit fringe and face-frame locks", () => {
-  const uniform = solveHair({ showHairV2Ponytail: true });
-  assert.equal(uniform.locks.length, 0);
-
-  const bangs = solveHair({
-    showHairV2Ponytail: true,
-    ...HAIR_V2_LENGTH_PRESETS.fullBangs.values
-  });
-  assert.ok(bangs.locks.length > 0);
-  assert.ok(bangs.locks.every(lock => lock.layer === "front"));
-
-  const faceFrame = solveHair({
-    showHairV2Ponytail: true,
-    hairV2FaceFrameLengthScale: 1.4
-  });
-  assert.ok(faceFrame.locks.length > 0);
-  assert.ok(faceFrame.locks.length < solveHair({ showHairV2Ponytail: false }).locks.length);
-});
-
-test("active ponytail forces full scalp coverage without mutating its controls", () => {
-  const withoutToggle = solveHair({
-    showHairV2Ponytail: true,
-    showHairV2ScalpBase: false,
-    hairV2ScalpBaseCoverage: 0.1
-  });
-  const withToggle = solveHair({
-    showHairV2Ponytail: true,
-    showHairV2ScalpBase: true,
-    hairV2ScalpBaseCoverage: 0.9
-  });
-  const loose = solveHair({
-    showHairV2Ponytail: false,
-    showHairV2ScalpBase: true,
-    hairV2ScalpBaseCoverage: 0.1
-  });
-
-  assert.deepEqual(withoutToggle.scalpBase, withToggle.scalpBase);
-  assert.ok(withoutToggle.scalpBase.length > loose.scalpBase.length);
-});
-
-test("tail shine obeys shine visibility and detail locks inherit curl", () => {
-  const noShine = solveHair({
-    showHairV2Ponytail: true,
-    showHairV2Shine: false
-  }).ponytail;
-  const shine = solveHair({
-    showHairV2Ponytail: true,
+test("tail styling continues to inherit shine, curl, and shared outline controls", () => {
+  const noShine = solvePonytail({ showHairV2Shine: false });
+  const shine = solvePonytail({
     showHairV2Shine: true,
     hairV2ShineLength: 0.7
-  }).ponytail;
+  });
 
   assert.equal(noShine.tailShine, null);
   assert.equal(noShine.detailShines.length, 0);
   assert.ok(shine.tailShine);
   assert.ok(shine.detailShines.length > 0);
 
-  const straight = solveHair({
-    showHairV2Ponytail: true,
+  const straight = solvePonytail({
     hairV2CurlInterval: 20,
-    hairV2CurlAngle: 0
-  }).ponytail;
-  const curled = solveHair({
-    showHairV2Ponytail: true,
+    hairV2CurlAngle: 0,
+    hairV2SharedOutline: false
+  });
+  const curled = solvePonytail({
     hairV2CurlInterval: 20,
-    hairV2CurlAngle: 30
-  }).ponytail;
+    hairV2CurlAngle: 30,
+    hairV2SharedOutline: true
+  });
 
   assert.notDeepEqual(curled.detailLocks, straight.detailLocks);
   assert.deepEqual(curled.tailMass, straight.tailMass);
+  assert.equal(straight.sharedOutline, false);
+  assert.equal(curled.sharedOutline, true);
+});
+
+test("attraction distance excludes the front and spans the eligible region", () => {
+  const tieV = 0.6;
+
+  assert.equal(hairV2PonytailAttractionDistance(0.64, tieV, tieV), Infinity);
+  assert.equal(hairV2PonytailAttractionDistance(-0.64, tieV, tieV), Infinity);
+  assert.equal(hairV2PonytailAttractionDistance(2, tieV, tieV), 0);
+  assert.ok(hairV2PonytailAttractionDistance(0.65, 0, tieV) <= 1);
+  assert.ok(hairV2PonytailAttractionDistance(-0.65, 1, tieV) <= 1);
+});
+
+test("attraction membership is monotonic and stable across yaw", () => {
+  const counts = [0, 0.35, 0.7, 1].map(area => attractedIndices(solveRig({
+    showHairV2Ponytail: true,
+    hairV2PonytailAttractionArea: area
+  }).hairV2).length);
+
+  assert.equal(counts[0], 0);
+  assert.ok(counts[0] <= counts[1] && counts[1] <= counts[2] && counts[2] <= counts[3]);
+  assert.ok(counts[3] > 0);
+
+  const left = solveRig({
+    showHairV2Ponytail: true,
+    hairV2PonytailAttractionArea: 0.7,
+    yaw: -1
+  }).hairV2;
+  const front = solveRig({
+    showHairV2Ponytail: true,
+    hairV2PonytailAttractionArea: 0.7,
+    yaw: 0
+  }).hairV2;
+  const right = solveRig({
+    showHairV2Ponytail: true,
+    hairV2PonytailAttractionArea: 0.7,
+    yaw: 1
+  }).hairV2;
+
+  assert.deepEqual(attractedIndices(left), attractedIndices(front));
+  assert.deepEqual(attractedIndices(right), attractedIndices(front));
+  assert.ok(front.locks.filter(lock => lock.attracted)
+    .every(lock => Math.abs(lock.rootUV.u) >= 0.65));
+});
+
+test("attracted locks pin exactly to the tie under straight and extreme curls", () => {
+  for (const curlAngle of [0, 60]) {
+    const rig = solveRig({
+      showHairV2Ponytail: true,
+      hairV2PonytailAttractionArea: 1,
+      hairV2CurlInterval: curlAngle === 0 ? 1000 : 8,
+      hairV2CurlAngle: curlAngle,
+      hairV2CurlPeriod: 1
+    });
+    const attracted = rig.hairV2.locks.filter(lock => lock.attracted);
+
+    assert.ok(attracted.length > 0);
+    for (const lock of attracted) {
+      assert.ok(Math.hypot(
+        lock.tip.x - rig.ponytail.tiePoint.x,
+        lock.tip.y - rig.ponytail.tiePoint.y
+      ) < EPSILON);
+    }
+  }
+});
+
+test("locks outside the attraction area remain exactly baseline geometry", () => {
+  const baseline = solveRig({
+    showHairV2Ponytail: false,
+    hairV2PonytailAttractionArea: 0
+  }).hairV2;
+  const attracted = solveRig({
+    showHairV2Ponytail: true,
+    hairV2PonytailAttractionArea: 0.55
+  }).hairV2;
+
+  assert.equal(attracted.locks.length, baseline.locks.length);
+  assert.ok(attracted.locks.some(lock => lock.attracted));
+
+  attracted.locks.forEach((lock, index) => {
+    if (!lock.attracted) {
+      assert.deepEqual(lock, baseline.locks[index]);
+    }
+  });
+});
+
+test("attraction default is disabled for existing saves", () => {
+  assert.equal(defaultParams.hairV2PonytailAttractionArea, 0);
 });

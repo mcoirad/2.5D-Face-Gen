@@ -126,6 +126,28 @@ export function normalizeHairV2LengthPreset(params) {
   return matchesHairV2LengthPreset(params, presetName) ? presetName : "custom";
 }
 
+// Shared head-fixed style regions. Length profiling uses these masks to shape
+// fringe and face-framing locks; gathered styles use the same masks to decide
+// which deliberately loose locks should remain outside the gather.
+export function resolveHairV2StyleMasks(params, u, v) {
+  const absU = clamp(Math.abs(u), 0, 2);
+  const fringeWidth = clamp(params.hairV2FringeWidth, 0, 1);
+  let fringe = 0;
+
+  if (fringeWidth > 0) {
+    const halfWidth = lerp(0.2, 1, fringeWidth);
+    const fringeLongitudeWeight = 1 - smoothstep(halfWidth * 0.75, halfWidth, absU);
+    const fringeHairlineWeight = smoothstep(0.45, 0.9, clamp(v, 0, 1));
+    fringe = fringeLongitudeWeight * fringeHairlineWeight;
+  }
+
+  const faceFrameLongitudeWeight = 1 - smoothstep(0.18, 0.42, Math.abs(absU - 0.55));
+  const faceFrameHairlineWeight = smoothstep(0.5, 0.9, clamp(v, 0, 1));
+  const faceFrame = faceFrameLongitudeWeight * faceFrameHairlineWeight;
+
+  return { fringe, faceFrame };
+}
+
 export function resolveHairV2LengthScale(params, u, v) {
   const absU = clamp(Math.abs(u), 0, 2);
   const perimeterScale = absU <= 1
@@ -142,13 +164,11 @@ export function resolveHairV2LengthScale(params, u, v) {
   const perimeterWeight = smoothstep(0.15, 0.85, clamp(v, 0, 1));
   let scale = lerp(params.hairV2CrownLengthScale, perimeterScale, perimeterWeight);
   const fringeWidth = clamp(params.hairV2FringeWidth, 0, 1);
+  const masks = resolveHairV2StyleMasks(params, u, v);
 
   if (fringeWidth > 0) {
     const halfWidth = lerp(0.2, 1, fringeWidth);
     const normalizedU = clamp(u / halfWidth, -1, 1);
-    const fringeLongitudeWeight = 1 - smoothstep(halfWidth * 0.75, halfWidth, absU);
-    const fringeHairlineWeight = smoothstep(0.45, 0.9, clamp(v, 0, 1));
-    const fringeMask = fringeLongitudeWeight * fringeHairlineWeight;
     const fringeEdgeWeight = smoothstep(0, 1, Math.abs(normalizedU));
     const fringeShapeScale = lerp(
       params.hairV2FringeCenterLengthScale,
@@ -157,13 +177,10 @@ export function resolveHairV2LengthScale(params, u, v) {
     );
     const biasedFringeScale = fringeShapeScale * (1 + params.hairV2FringeBias * normalizedU);
 
-    scale *= lerp(1, biasedFringeScale, fringeMask);
+    scale *= lerp(1, biasedFringeScale, masks.fringe);
   }
 
-  const faceFrameLongitudeWeight = 1 - smoothstep(0.18, 0.42, Math.abs(absU - 0.55));
-  const faceFrameHairlineWeight = smoothstep(0.5, 0.9, clamp(v, 0, 1));
-  const faceFrameMask = faceFrameLongitudeWeight * faceFrameHairlineWeight;
-  scale *= lerp(1, params.hairV2FaceFrameLengthScale, faceFrameMask);
+  scale *= lerp(1, params.hairV2FaceFrameLengthScale, masks.faceFrame);
 
   return clamp(scale, 0.15, 2.5);
 }

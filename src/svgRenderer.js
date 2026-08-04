@@ -12,8 +12,11 @@ export function renderFaceSvg(rig) {
       ${renderHelmetLayers(rig.helmet?.back)}
       ${renderEars(rig.ears, "back")}
       ${renderHair(rig.hair, "back")}
+      ${renderHairV2PonytailExtension(rig.hairV2, "back")}
       ${renderHairV2ScalpBase(rig.hairV2, "back")}
+      ${renderHairV2GatheredRibbons(rig.hairV2, "back")}
       ${renderHeadband(rig.headband, "back")}
+      ${renderHairV2PonytailTie(rig.hairV2, "back")}
       ${renderHairV2(rig.hairV2, "back")}
       ${renderFacialHair(rig.facialHair, "back")}
       ${renderHead(headPathD, rig.skinColor)}
@@ -24,7 +27,9 @@ export function renderFaceSvg(rig) {
       ${renderFacialHair(rig.facialHair, "front")}
       ${renderHair(rig.hair, "front")}
       ${renderHairV2ScalpBase(rig.hairV2, "front")}
+      ${renderHairV2GatheredRibbons(rig.hairV2, "front")}
       ${renderHeadband(rig.headband, "front")}
+      ${renderHairV2PonytailTie(rig.hairV2, "front")}
       ${renderHairV2(rig.hairV2, "front")}
       ${renderHelmetLayers(rig.helmet?.front)}
       ${rig.features.eyes.map(renderEye).join("")}
@@ -435,22 +440,75 @@ function renderHairV2ScalpBase(hairV2, layer) {
     : shapes.map(renderHairShape).join("");
 }
 
+function hairV2LockShape(lock, strokeWidth = 2) {
+  return {
+    d: renderHairLockPath(lock),
+    fill: lock.fill,
+    stroke: lock.stroke,
+    strokeWidth,
+    opacity: lock.opacity
+  };
+}
+
+function renderHairV2PonytailExtension(hairV2, layer) {
+  const ponytail = hairV2?.ponytail;
+
+  if (!ponytail || layer !== "back") {
+    return "";
+  }
+
+  const shapes = [ponytail.tailMass, ...(ponytail.detailLocks ?? [])]
+    .filter(Boolean)
+    .map(lock => hairV2LockShape(lock));
+  const shapesMarkup = hairV2.sharedOutline
+    ? renderSharedOutlineShapes(shapes)
+    : shapes.map(renderHairShape).join("");
+  const shines = [ponytail.tailShine, ...(ponytail.detailShines ?? [])]
+    .filter(Boolean)
+    .map(renderHairShine)
+    .join("");
+
+  return shapesMarkup + shines;
+}
+
+function renderHairV2GatheredRibbons(hairV2, layer) {
+  const ribbons = hairV2?.ponytail?.gatheredRibbons
+    ?.filter(item => matchesHairLayer(item, layer)) ?? [];
+
+  if (!ribbons.length) {
+    return "";
+  }
+
+  const shapes = ribbons.map(ribbon => hairV2LockShape(ribbon));
+  return hairV2.sharedOutline
+    ? renderSharedOutlineShapes(shapes)
+    : shapes.map(renderHairShape).join("");
+}
+
+function renderHairV2PonytailTie(hairV2, layer) {
+  const tie = hairV2?.ponytail?.tie;
+
+  if (!tie || !matchesHairLayer(tie, layer)) {
+    return "";
+  }
+
+  return renderHairShape({
+    d: `${renderPointPath(tie.points)} Z`,
+    fill: tie.fill,
+    stroke: tie.stroke,
+    strokeWidth: 2.5,
+    opacity: tie.opacity
+  });
+}
+
 function renderHairV2(hairV2, layer) {
   if (!hairV2) {
     return "";
   }
 
-  const lockShape = lock => ({
-    d: renderHairLockPath(lock),
-    fill: lock.fill,
-    stroke: lock.stroke,
-    strokeWidth: 2,
-    opacity: lock.opacity
-  });
-
   const shapes = hairV2.locks
     .filter(item => matchesHairLayer(item, layer))
-    .map(lockShape);
+    .map(lock => hairV2LockShape(lock));
 
   const shapesMarkup = hairV2.sharedOutline
     ? renderSharedOutlineShapes(shapes)
@@ -618,9 +676,14 @@ function renderHairLockPath(lock) {
       .map(seg => `C ${seg.c1.x} ${seg.c1.y} ${seg.c2.x} ${seg.c2.y} ${seg.to.x} ${seg.to.y}`)
       .join(" ");
 
+    const tipBridge = lock.tipRight
+      ? `L ${lock.tipRight.x} ${lock.tipRight.y}`
+      : "";
+
     return [
       `M ${lock.rootLeft.x} ${lock.rootLeft.y}`,
       leftPath,
+      tipBridge,
       rightPath,
       rootClose
     ].join(" ");

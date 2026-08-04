@@ -290,6 +290,19 @@ const controlGroups = [
     open: true
   },
   {
+    title: "Ponytail",
+    keys: [
+      "showHairV2Ponytail",
+      "hairV2PonytailHeight",
+      "hairV2PonytailLength",
+      "hairV2PonytailWidth",
+      "hairV2PonytailLift",
+      "hairV2PonytailSwing",
+      "hairV2PonytailTieColor"
+    ],
+    open: true
+  },
+  {
     title: "Accessories",
     keys: ["showHairV2Headband", "hairV2HeadbandColor"],
     open: true

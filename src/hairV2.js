@@ -1,5 +1,5 @@
 import { clamp, lerp, smoothstep } from "./geometry.js";
-import { resolveHairV2LengthScale } from "./hairV2Profiles.js";
+import { resolveHairV2LengthScale, resolveHairV2StyleMasks } from "./hairV2Profiles.js";
 import {
   addPoints,
   createStructureProjector,
@@ -41,6 +41,11 @@ const HEADBAND_EDGE_SOFTNESS = 0.06;
 // and its coverage radius, so its side edges hug the scalp curve instead of
 // one long chord from the crown straight to the rim.
 const SCALP_BASE_RING_COUNT = 6;
+const PONYTAIL_SCALP_BASE_RING_COUNT = 16;
+const PONYTAIL_GUIDE_SEGMENTS = 12;
+const PONYTAIL_TAIL_SEGMENTS = 12;
+const PONYTAIL_DETAIL_SEED = 40000;
+const PONYTAIL_LOOSE_MASK_THRESHOLD = 0.05;
 // Fraction of a ring's own v-span it's extended past its outer edge, into
 // the next ring's territory, so consecutive rings overlap enough for the
 // shared-outline fill pass to cover the seam between them.
@@ -91,6 +96,14 @@ export function solveHairV2(params, pose, structure) {
   const shines = [];
   const mirror = Boolean(params.hairV2Mirror);
   const sourceCount = count;
+  const ponytailActive = Boolean(params.showHairV2Ponytail) && !params.showHelmet;
+
+  const appendLockResult = result => {
+    locks.push(result.lock);
+    if (result.shine) {
+      shines.push(result.shine);
+    }
+  };
 
   // Stratified placement: cover the (u, v) map with a jittered grid so locks are
   // spread evenly instead of clumping and leaving bald spots. u is the wide axis
@@ -100,19 +113,20 @@ export function solveHairV2(params, pose, structure) {
 
   for (let i = 0; i < sourceCount; i += 1) {
     const { u, v } = stratifiedUV(i, cols, rows, mirror);
-    const result = makeV2Lock(i, u, v, scalp, partU, partHalf, midpoint, params, color, shineColor, 1, headband);
-
-    locks.push(result.lock);
-    if (result.shine) {
-      shines.push(result.shine);
+    if (!ponytailActive || shouldRetainLoosePonytailLock(params, u, v)) {
+      appendLockResult(makeV2Lock(
+        i, u, v, scalp, partU, partHalf, midpoint,
+        params, color, shineColor, 1, headband
+      ));
     }
 
     if (mirror) {
-      const mirroredResult = makeV2Lock(i, -u, v, scalp, partU, partHalf, midpoint, params, color, shineColor, -1, headband);
-
-      locks.push(mirroredResult.lock);
-      if (mirroredResult.shine) {
-        shines.push(mirroredResult.shine);
+      const mirroredU = -u;
+      if (!ponytailActive || shouldRetainLoosePonytailLock(params, mirroredU, v)) {
+        appendLockResult(makeV2Lock(
+          i, mirroredU, v, scalp, partU, partHalf, midpoint,
+          params, color, shineColor, -1, headband
+        ));
       }
     }
   }
@@ -132,19 +146,14 @@ export function solveHairV2(params, pose, structure) {
   // touching - with the shared-outline render mode, that overlap is what
   // lets one ring's fill cover its neighbor's stroke and hide the seam
   // between them, the same way overlapping locks already hide theirs.
-  const scalpBase = Boolean(params.showHairV2ScalpBase)
-    ? Array.from({ length: SCALP_BASE_RING_COUNT }, (_, ring) => {
-        const vLow = lerp(0, params.hairV2ScalpBaseCoverage, ring / SCALP_BASE_RING_COUNT);
-        const vHighEdge = lerp(0, params.hairV2ScalpBaseCoverage, (ring + 1) / SCALP_BASE_RING_COUNT);
-        const ringSpan = vHighEdge - vLow;
-        const vHigh = Math.min(
-          params.hairV2ScalpBaseCoverage,
-          vHighEdge + ringSpan * SCALP_BASE_RING_OVERLAP
-        );
-
-        return makeHeadbandBelt(scalp, vLow, vHigh, color);
-      }).flat()
-    : [];
+  const scalpBase = ponytailActive
+    ? makeScalpBase(scalp, 1, PONYTAIL_SCALP_BASE_RING_COUNT, color)
+    : Boolean(params.showHairV2ScalpBase)
+      ? makeScalpBase(scalp, params.hairV2ScalpBaseCoverage, SCALP_BASE_RING_COUNT, color)
+      : [];
+  const ponytail = ponytailActive
+    ? solveHairV2Ponytail(params, pose, scalp, color, shineColor)
+    : null;
 
   return {
     locks,
@@ -152,7 +161,401 @@ export function solveHairV2(params, pose, structure) {
     partGuide: makePartGuide(scalp, partU, partHalf),
     showPartGuide: Boolean(params.showHairV2PartGuide),
     scalpBase,
+    ponytail,
     sharedOutline: Boolean(params.hairV2SharedOutline)
+  };
+}
+
+function shouldRetainLoosePonytailLock(params, u, v) {
+  const masks = resolveHairV2StyleMasks(params, u, v);
+  const fringeActive = params.hairV2FringeWidth > 0
+    && masks.fringe > PONYTAIL_LOOSE_MASK_THRESHOLD;
+  const faceFrameActive = Math.abs(params.hairV2FaceFrameLengthScale - 1) > 1e-9
+    && masks.faceFrame > PONYTAIL_LOOSE_MASK_THRESHOLD;
+
+  return fringeActive || faceFrameActive;
+}
+
+function makeScalpBase(scalp, coverage, ringCount, color) {
+  return Array.from({ length: ringCount }, (_, ring) => {
+    const vLow = lerp(0, coverage, ring / ringCount);
+    const vHighEdge = lerp(0, coverage, (ring + 1) / ringCount);
+    const ringSpan = vHighEdge - vLow;
+    const vHigh = Math.min(
+      coverage,
+      vHighEdge + ringSpan * SCALP_BASE_RING_OVERLAP
+    );
+
+    return makeHeadbandBelt(scalp, vLow, vHigh, color);
+  }).flat();
+}
+
+function solveHairV2Ponytail(params, pose, scalp, color, shineColor) {
+  const tieV = lerp(0.92, 0.25, clamp(params.hairV2PonytailHeight, 0, 1));
+  const tieLeft = scalp(-U_RANGE, tieV);
+  const tieRight = scalp(U_RANGE, tieV);
+  const tiePoint = {
+    x: (tieLeft.x + tieRight.x) / 2,
+    y: (tieLeft.y + tieRight.y) / 2,
+    depthPosition: -1,
+    sidePosition: (tieLeft.sidePosition + tieRight.sidePosition) / 2
+  };
+  const tailWidth = params.hairV2PonytailWidth;
+  const tieWidth = clamp(tailWidth * 0.18, 10, 24);
+  const gatheredRibbons = makePonytailGatheredRibbons(
+    params,
+    scalp,
+    tieV,
+    tieWidth,
+    color
+  );
+  const tail = makePonytailTail(params, pose, tiePoint, tieWidth, color, shineColor);
+  const tieColor = resolveHairColor(params, "hairV2PonytailTieColor");
+  const tie = makePonytailTie(tiePoint, tail.firstHeading, tailWidth, tieColor);
+
+  return {
+    gatheredRibbons,
+    tailMass: tail.mass,
+    tailShine: tail.shine,
+    detailLocks: tail.details.map(result => result.lock),
+    detailShines: tail.details.flatMap(result => result.shine ? [result.shine] : []),
+    tie,
+    tiePoint,
+    tieV
+  };
+}
+
+function makePonytailGatheredRibbons(params, scalp, tieV, tieWidth, color) {
+  const guides = [
+    { startU: -0.2, controlU: -0.55, controlV: 0.05, side: -1 },
+    { startU: 0.2, controlU: 0.55, controlV: 0.05, side: 1 },
+    { startU: -0.65, controlU: -1.1, controlV: 0.25, side: -1 },
+    { startU: 0.65, controlU: 1.1, controlV: 0.25, side: 1 },
+    { startU: -1.05, controlU: -1.45, controlV: 0.45, side: -1 },
+    { startU: 1.05, controlU: 1.45, controlV: 0.45, side: 1 }
+  ];
+  const rootWidth = params.hairV2LockWidth * 0.9;
+  const tieRibbonWidth = Math.max(2.5, tieWidth / guides.length);
+
+  return guides.flatMap((guide, guideIndex) => {
+    const points = [];
+
+    for (let segment = 0; segment <= PONYTAIL_GUIDE_SEGMENTS; segment += 1) {
+      const t = segment / PONYTAIL_GUIDE_SEGMENTS;
+      const u = quadraticValue(guide.startU, guide.controlU, guide.side * U_RANGE, t);
+      const v = quadraticValue(1, guide.controlV, tieV, t);
+      points.push(scalp(u, v));
+    }
+
+    const remainingDistances = makeRemainingDistances(points);
+    const captureRadius = Math.max(60, params.hairV2PonytailWidth * 1.25)
+      * lerp(0.9, 1.1, seededRandom(PONYTAIL_DETAIL_SEED + guideIndex, 1));
+    const widths = remainingDistances.map(remainingDistance => {
+      const gatherWeight = 1 - smoothstep(tieWidth, captureRadius, remainingDistance);
+      return lerp(rootWidth, tieRibbonWidth, gatherWeight);
+    });
+
+    return splitPonytailGuideRuns(points, widths).map(run => ({
+      ...finishVariableRibbonGeometry(
+        buildVariableWidthRibbonGeometry(run.points, ({ index }) => run.widths[index]),
+        run.points,
+        run.widths,
+        run.layer,
+        color.fill,
+        color.stroke,
+        1
+      ),
+      role: "gather"
+    }));
+  });
+}
+
+function makePonytailTail(params, pose, tiePoint, tieWidth, color, shineColor) {
+  const length = params.hairV2PonytailLength;
+  const width = params.hairV2PonytailWidth;
+  const lift = params.hairV2PonytailLift;
+  const viewSide = Math.sin(pose.yaw * Math.PI / 2);
+  const authoredSwing = params.hairV2PonytailSwing * Math.cos(pose.yaw * Math.PI / 2);
+  const lateral = clamp(viewSide + authoredSwing, -1, 1);
+  const controls = [
+    tiePoint,
+    {
+      x: tiePoint.x + lateral * width * (0.35 + 0.45 * lift),
+      y: tiePoint.y - length * 0.2 * lift
+    },
+    {
+      x: tiePoint.x + lateral * width * 0.8,
+      y: tiePoint.y + length * 0.45
+    },
+    {
+      x: tiePoint.x + lateral * width * 0.55,
+      y: tiePoint.y + length
+    }
+  ];
+  const points = Array.from({ length: PONYTAIL_TAIL_SEGMENTS + 1 }, (_, index) => (
+    cubicBezierPoint(controls, index / PONYTAIL_TAIL_SEGMENTS)
+  ));
+  const widthAt = t => ponytailTailWidthAt(t, tieWidth, width);
+  const massWidths = points.map((_, index) => widthAt(index / PONYTAIL_TAIL_SEGMENTS));
+  const mass = {
+    ...finishVariableRibbonGeometry(
+      buildVariableWidthRibbonGeometry(points, ({ t }) => widthAt(t)),
+      points,
+      massWidths,
+      "back",
+      color.fill,
+      color.stroke,
+      1
+    ),
+    role: "tail"
+  };
+  const headings = makePointHeadings(points);
+  const shine = params.showHairV2Shine
+    ? makePonytailTailShine(params, points, widthAt, lateral, shineColor)
+    : null;
+  const details = makePonytailDetailLocks(params, points, headings, lateral, color, shineColor);
+
+  return {
+    mass,
+    shine,
+    details,
+    firstHeading: headings[0]
+  };
+}
+
+export function ponytailTailWidthAt(t, tieWidth, fullWidth) {
+  const expansion = smoothstep(0, 0.22, clamp(t, 0, 1));
+  const taper = 1 - smoothstep(0.62, 1, clamp(t, 0, 1));
+  return lerp(tieWidth, fullWidth, expansion) * taper;
+}
+
+function makePonytailTailShine(params, points, widthAt, lateral, shineColor) {
+  const alignment = lateral * params.hairV2LightX;
+  const shadowTarget = alignment >= 0 ? 1 : HAIR_SHINE_SHADOW_FLOOR;
+  const illumination = lerp(1, shadowTarget, Math.abs(alignment));
+  const lengthFraction = clamp(params.hairV2ShineLength * illumination, 0, 1);
+
+  if (lengthFraction <= 0 || params.hairV2ShineWidth <= 0) {
+    return null;
+  }
+
+  const lastIndex = Math.max(1, Math.round((points.length - 1) * lengthFraction));
+  const shinePoints = points.slice(0, lastIndex + 1);
+  const shineWidthFraction = Math.min(
+    params.hairV2ShineWidth * illumination,
+    HAIR_SHINE_MAX_WIDTH_FRACTION
+  );
+  const maxBias = maxShineBias(shineWidthFraction);
+  const widthSamples = shinePoints.map((_, index) => {
+    const globalT = (index / lastIndex) * lengthFraction;
+    return widthAt(globalT) * shineWidthFraction;
+  });
+  const geometry = buildVariableWidthRibbonGeometry(
+    shinePoints,
+    ({ index }) => widthSamples[index],
+    ({ perp }) => clamp(
+      perp.x * params.hairV2LightX * HAIR_SHINE_ASYMMETRY_STRENGTH,
+      -maxBias,
+      maxBias
+    )
+  );
+
+  return {
+    ...finishVariableRibbonGeometry(
+      geometry,
+      shinePoints,
+      widthSamples,
+      "back",
+      shineColor,
+      "none",
+      HAIR_SHINE_OPACITY
+    ),
+    role: "tail-shine"
+  };
+}
+
+function makePonytailDetailLocks(params, points, headings, lateral, color, shineColor) {
+  const details = [
+    { t: 0.18, length: 0.68, width: 0.18, mirror: -1 },
+    { t: 0.32, length: 0.54, width: 0.16, mirror: 1 },
+    { t: 0, length: 0.32, width: 0.1, mirror: lateral < 0 ? -1 : 1 }
+  ];
+
+  return details.map((detail, index) => {
+    const pointIndex = Math.min(
+      points.length - 2,
+      Math.max(0, Math.round(detail.t * (points.length - 1)))
+    );
+
+    return makeHairV2Lock({
+      index: PONYTAIL_DETAIL_SEED + index,
+      base: {
+        ...points[pointIndex],
+        sidePosition: lateral,
+        depthPosition: -1
+      },
+      direction: headings[pointIndex],
+      params,
+      lengthOverride: params.hairV2PonytailLength * detail.length,
+      widthOverride: Math.min(
+        params.hairV2LockWidth * 0.45,
+        params.hairV2PonytailWidth * detail.width
+      ),
+      color,
+      shineColor,
+      curveMirror: detail.mirror,
+      sidePosition: lateral,
+      depthPosition: -1,
+      layer: "back"
+    });
+  });
+}
+
+function makePonytailTie(center, tailDirection, tailWidth, color) {
+  const across = { x: -tailDirection.y, y: tailDirection.x };
+  const along = tailDirection;
+  const acrossRadius = clamp(tailWidth * 0.16, 8, 21);
+  const alongRadius = clamp(tailWidth * 0.05, 3, 7);
+  const segments = 16;
+  const points = Array.from({ length: segments }, (_, index) => {
+    const angle = index / segments * Math.PI * 2;
+    return addPoints(
+      center,
+      addPoints(
+        scalePoint(across, Math.cos(angle) * acrossRadius),
+        scalePoint(along, Math.sin(angle) * alongRadius)
+      )
+    );
+  });
+
+  return {
+    points,
+    center,
+    layer: "back",
+    fill: color.fill,
+    stroke: color.stroke,
+    opacity: 1
+  };
+}
+
+function splitPonytailGuideRuns(points, widths) {
+  const runs = [];
+  let current = null;
+
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index];
+    const layer = point.depthPosition < FRONT_BACK_DEPTH_THRESHOLD ? "back" : "front";
+
+    if (!current) {
+      current = { layer, points: [point], widths: [widths[index]] };
+      continue;
+    }
+
+    if (layer !== current.layer) {
+      current.points.push(point);
+      current.widths.push(widths[index]);
+      runs.push(current);
+      current = {
+        layer,
+        points: [points[index - 1], point],
+        widths: [widths[index - 1], widths[index]]
+      };
+    } else {
+      current.points.push(point);
+      current.widths.push(widths[index]);
+    }
+  }
+
+  if (current) {
+    runs.push(current);
+  }
+
+  return runs.filter(run => run.points.length >= 2);
+}
+
+function quadraticValue(start, control, end, t) {
+  const inverse = 1 - t;
+  return inverse * inverse * start + 2 * inverse * t * control + t * t * end;
+}
+
+function cubicBezierPoint([p0, p1, p2, p3], t) {
+  const inverse = 1 - t;
+  const a = inverse * inverse * inverse;
+  const b = 3 * inverse * inverse * t;
+  const c = 3 * inverse * t * t;
+  const d = t * t * t;
+
+  return {
+    x: p0.x * a + p1.x * b + p2.x * c + p3.x * d,
+    y: p0.y * a + p1.y * b + p2.y * c + p3.y * d
+  };
+}
+
+function makeRemainingDistances(points) {
+  const remaining = Array(points.length).fill(0);
+
+  for (let index = points.length - 2; index >= 0; index -= 1) {
+    remaining[index] = remaining[index + 1]
+      + Math.hypot(
+        points[index + 1].x - points[index].x,
+        points[index + 1].y - points[index].y
+      );
+  }
+
+  return remaining;
+}
+
+function makePointHeadings(points) {
+  return Array.from({ length: points.length - 1 }, (_, index) => (
+    normalizePoint(subtractPoints(points[index + 1], points[index]))
+  ));
+}
+
+function buildVariableWidthRibbonGeometry(points, widthAt, biasAt = () => 0) {
+  const headings = makePointHeadings(points);
+  const last = points.length - 1;
+  const leftEdge = [];
+  const rightEdge = [];
+
+  for (let index = 0; index <= last; index += 1) {
+    const tangent = index === 0
+      ? headings[0]
+      : index === last
+        ? headings[last - 1]
+        : normalizePoint(addPoints(headings[index - 1], headings[index]));
+    const perp = { x: -tangent.y, y: tangent.x };
+    const t = index / last;
+    const width = Math.max(0, widthAt({ t, point: points[index], index }));
+    const bias = clamp(biasAt({ t, point: points[index], index, tangent, perp }), -0.95, 0.95);
+    const halfWidth = width / 2;
+
+    leftEdge.push(offsetPoint(points[index], perp, -halfWidth * (1 - bias)));
+    rightEdge.push(offsetPoint(points[index], perp, halfWidth * (1 + bias)));
+  }
+
+  return {
+    rootLeft: leftEdge[0],
+    rootRight: rightEdge[0],
+    tip: points[last],
+    tipLeft: leftEdge[last],
+    tipRight: rightEdge[last],
+    spineLeft: buildSmoothPath(leftEdge),
+    spineRight: buildSmoothPath([...rightEdge].reverse())
+  };
+}
+
+function finishVariableRibbonGeometry(geometry, points, widthSamples, layer, fill, stroke, opacity) {
+  return {
+    ...geometry,
+    rootControl: null,
+    notch: null,
+    detailLines: [],
+    spinePoints: points,
+    widthSamples,
+    layer,
+    fill,
+    stroke,
+    opacity
   };
 }
 
@@ -308,6 +711,7 @@ export function makeHairV2Lock({
   direction,
   params,
   lengthOverride = null,
+  widthOverride = null,
   color = resolveHairColor(params, "hairV2Color"),
   shineColor = resolveHairShineColor(params, "hairV2Color"),
   curveMirror = 1,
@@ -318,7 +722,8 @@ export function makeHairV2Lock({
 }) {
   const normalizedDirection = normalizePoint(direction);
 
-  const width = params.hairV2LockWidth * lerp(0.85, 1.15, seededRandom(index, 3));
+  const baseWidth = widthOverride ?? params.hairV2LockWidth;
+  const width = baseWidth * lerp(0.85, 1.15, seededRandom(index, 3));
   const baseLength = lengthOverride ?? params.hairV2LockLength;
   const length = baseLength * lerp(0.85, 1.15, seededRandom(index, 4));
   const curve = length * 0.12 * (seededRandom(index, 5) < 0.5 ? -1 : 1) * curveMirror;

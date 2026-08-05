@@ -172,6 +172,11 @@ const controlGroups = [
     open: true
   },
   {
+    title: "Shading",
+    keys: ["showEyeShading"],
+    open: true
+  },
+  {
     title: "Nose",
     keys: ["noseLength", "noseY", "noseWidth", "noseProtrusion"],
     open: false

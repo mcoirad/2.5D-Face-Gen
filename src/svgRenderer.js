@@ -22,6 +22,7 @@ export function renderFaceSvg(rig) {
       ${renderSideTiedLocks(rig.sideTiedLocks, "back")}
       ${renderFacialHair(rig.facialHair, "back")}
       ${renderHead(headPathD, rig.skinColor)}
+      ${renderEyeShading(rig.features.eyeShading, headPathD)}
       ${renderEars(rig.ears, "front")}
       ${rig.showGuides ? renderGuides(rig.head.guides) : ""}
       ${renderNose(rig.features.nose)}
@@ -820,6 +821,48 @@ function renderBrow(brow) {
       stroke-linejoin="round"
     />
   `;
+}
+
+function renderEyeShading(shading, headPathD) {
+  const visibleShading = (shading ?? []).filter(item => item.visible);
+
+  if (!visibleShading.length) {
+    return "";
+  }
+
+  return `
+    <defs>
+      <clipPath id="eye-shading-head-clip">
+        <path d="${headPathD}" />
+      </clipPath>
+    </defs>
+    <g clip-path="url(#eye-shading-head-clip)">
+      ${visibleShading.map(item => `
+        <path
+          class="eye-shading-eye"
+          d="${renderEyePath({ quad: item.eyeShape })}"
+          fill="${item.fillColor}"
+          stroke="none"
+        />
+        <path
+          class="eye-shading-bridge"
+          d="${renderEyeShadingBridgePath(item.bridgeShape)}"
+          fill="${item.fillColor}"
+          stroke="none"
+        />
+      `).join("")}
+    </g>
+  `;
+}
+
+function renderEyeShadingBridgePath(shape) {
+  return [
+    `M ${shape.bottomInner.x} ${shape.bottomInner.y}`,
+    `Q ${shape.bottomControl.x} ${shape.bottomControl.y} ${shape.bottomOuter.x} ${shape.bottomOuter.y}`,
+    `L ${shape.topOuter.x} ${shape.topOuter.y}`,
+    `Q ${shape.topControl.x} ${shape.topControl.y} ${shape.topInner.x} ${shape.topInner.y}`,
+    "Z"
+  ].join(" ");
 }
 
 function renderEye(eye, index) {

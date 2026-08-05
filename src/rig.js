@@ -11,6 +11,10 @@ import { solvePonytail } from "./ponytail.js";
 import { solveSideTiedLocks } from "./sideTiedLocks.js";
 
 const FACE_CENTER_Y = 10;
+const EYE_SHADING_SCALE = 1.4;
+const EYE_SHADING_DARKEN_FACTOR = 0.8;
+const EYE_SHADING_MIN_RISE = 10;
+const DEFAULT_SKIN_COLOR = "#f6f1e8";
 const DEFAULTS = {
   lowerFaceWidth: 145,
   lowerFaceHeight: 126,
@@ -725,6 +729,9 @@ function solveFeatures(params, pose, structure) {
     makeBrow(projectStructure, browX[0], browY, params, featureVisibility[0], -1, pose.sign, eyes[0], browFill),
     makeBrow(projectStructure, browX[1], browY, params, featureVisibility[1], 1, pose.sign, eyes[1], browFill)
   ];
+  const eyeShading = eyes.map((eye, index) => (
+    makeEyeShading(eye, brows[index], params.skinColor, Boolean(params.showEyeShading))
+  ));
 
   // Anchor the mouth vertically between the bottom of the nose and the chin,
   // then let mouthPosition slide it between those two points (0 = nose, 1 = chin).
@@ -743,6 +750,7 @@ function solveFeatures(params, pose, structure) {
   return {
     eyes,
     brows,
+    eyeShading,
     nose,
     mouth,
     moustache,
@@ -3047,6 +3055,51 @@ function makeBrow(project, x, y, params, visible, anatomicalSide, poseSignValue,
   }
 
   return brow;
+}
+
+function makeEyeShading(eye, brow, skinColor, enabled) {
+  const scaleFromEyeCenter = point => ({
+    x: eye.center.x + (point.x - eye.center.x) * EYE_SHADING_SCALE,
+    y: eye.center.y + (point.y - eye.center.y) * EYE_SHADING_SCALE
+  });
+  const eyeShape = Object.fromEntries(
+    Object.entries(eye.quad).map(([key, point]) => [key, scaleFromEyeCenter(point)])
+  );
+  const innerDistance = pointDistance(eyeShape.topInner, brow.bottomInner);
+  const outerDistance = pointDistance(eyeShape.topOuter, brow.bottomOuter);
+  const shortestDistance = Math.min(innerDistance, outerDistance);
+  const minimumFraction = shortestDistance <= Number.EPSILON
+    ? 1
+    : EYE_SHADING_MIN_RISE / shortestDistance;
+  const interpolation = clamp(Math.max(0.5, minimumFraction), 0.5, 1);
+  const bridgeShape = {
+    bottomInner: eyeShape.topInner,
+    bottomControl: eyeShape.topControl,
+    bottomOuter: eyeShape.topOuter,
+    topOuter: interpolatePoint(eyeShape.topOuter, brow.bottomOuter, interpolation),
+    topControl: interpolatePoint(eyeShape.topControl, brow.bottomControl, interpolation),
+    topInner: interpolatePoint(eyeShape.topInner, brow.bottomInner, interpolation)
+  };
+  const baseColor = isHexColor(skinColor) ? skinColor : DEFAULT_SKIN_COLOR;
+
+  return {
+    visible: enabled && eye.visible && brow.visible,
+    fillColor: darkenHex(baseColor, EYE_SHADING_DARKEN_FACTOR),
+    interpolation,
+    eyeShape,
+    bridgeShape
+  };
+}
+
+function interpolatePoint(from, to, amount) {
+  return {
+    x: lerp(from.x, to.x, amount),
+    y: lerp(from.y, to.y, amount)
+  };
+}
+
+function pointDistance(a, b) {
+  return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
 function shiftBrowY(brow, amount) {

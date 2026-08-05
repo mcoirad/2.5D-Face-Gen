@@ -9,6 +9,7 @@ export function renderFaceSvg(rig) {
       ${renderArmor(rig.armor, true)}
       ${renderBody(rig.body, rig.showGuides)}
       ${renderArmor(rig.armor, false)}
+      ${renderFerronniere(rig.ferronniere, "back")}
       ${renderHelmetLayers(rig.helmet?.back)}
       ${renderEars(rig.ears, "back")}
       ${renderDoublePonytailExtensions(rig.doublePonytail, "back")}
@@ -23,6 +24,7 @@ export function renderFaceSvg(rig) {
       ${renderFacialHair(rig.facialHair, "back")}
       ${renderHead(headPathD, rig.skinColor)}
       ${renderEyeShading(rig.features.eyeShading, headPathD)}
+      ${renderFerronniere(rig.ferronniere, "front")}
       ${renderEars(rig.ears, "front")}
       ${rig.showGuides ? renderGuides(rig.head.guides) : ""}
       ${renderNose(rig.features.nose, rig.pose.amount)}
@@ -414,6 +416,73 @@ function renderHeadband(headband, layer) {
   }
 
   return renderSharedOutlineShapes(shapes);
+}
+
+function renderFerronniere(ferronniere, layer) {
+  if (!ferronniere) {
+    return "";
+  }
+
+  const bands = ferronniere.bandRuns
+    .filter(run => matchesHairLayer(run, layer))
+    .map(run => renderFerronniereLine(run, "band"))
+    .join("");
+  const setting = ferronniere.layer === layer
+    ? [
+        renderFerronniereLine(ferronniere.connector, "connector"),
+        renderFerronniereShape(ferronniere.gemSide, "gem-side"),
+        renderFerronniereShape(ferronniere.holder, "holder"),
+        renderFerronniereShape(ferronniere.gem, "gem")
+      ].join("")
+    : "";
+
+  return bands + setting;
+}
+
+function renderFerronniereLine(line, role) {
+  if (!line?.points?.length) {
+    return "";
+  }
+
+  const path = renderPointPath(line.points);
+  return `
+    <path
+      data-ferronniere-part="${role}-outline"
+      d="${path}"
+      fill="none"
+      stroke="${line.outline}"
+      stroke-width="${line.strokeWidth + 2}"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      data-ferronniere-part="${role}"
+      d="${path}"
+      fill="none"
+      stroke="${line.stroke}"
+      stroke-width="${line.strokeWidth}"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  `;
+}
+
+function renderFerronniereShape(shape, role) {
+  if (!shape?.points?.length) {
+    return "";
+  }
+
+  return `
+    <path
+      data-ferronniere-part="${role}"
+      d="${renderPointPath(shape.points)} Z"
+      fill="${shape.fill}"
+      stroke="${shape.stroke}"
+      stroke-width="2"
+      stroke-linejoin="round"
+      opacity="${shape.opacity ?? 1}"
+    />
+  `;
 }
 
 // The scalp-base coverage rings render in their own pass, below the headband,

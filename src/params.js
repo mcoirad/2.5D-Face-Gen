@@ -120,6 +120,14 @@ export const defaultParams = {
   hairV2HeadbandPosition: 1,
   hairV2HeadbandWidth: 0.1,
   hairV2HeadbandStrength: 0.5,
+  showFerronniere: false,
+  ferronniereBandStyle: "single",
+  ferronnierePosition: 0.5,
+  ferronniereBandThickness: 2,
+  ferronniereMetalColor: "#c9a34a",
+  ferronniereGemSize: 16,
+  ferronniereGemColor: "#b83280",
+  ferronniereGemProtrusion: 0.55,
   showHairV2ScalpBase: true,
   hairV2ScalpBaseCoverage: 0.25,
   hairV2SharedOutline: true,
@@ -365,6 +373,10 @@ export const sliderConfig = {
   hairV2ShineWidth: [0, 1, 0.01],
   hairV2ShineLength: [0, 1, 0.01],
   hairV2LightX: [-1, 1, 0.01],
+  ferronnierePosition: [0, 1, 0.01],
+  ferronniereBandThickness: [1, 6, 0.25],
+  ferronniereGemSize: [6, 36, 1],
+  ferronniereGemProtrusion: [0, 1, 0.01],
   hairV2PonytailHeight: [0, 1, 0.01],
   hairV2PonytailLength: [60, 280, 1],
   hairV2PonytailWidth: [30, 150, 1],
@@ -391,6 +403,10 @@ export const sliderConfig = {
 
 export const selectConfig = {
   hairV2LengthPreset: HAIR_V2_LENGTH_PRESET_OPTIONS,
+  ferronniereBandStyle: [
+    ["single", "Single cord"],
+    ["double", "Double-line chain"]
+  ],
   hairV2DoublePonytailLayout: [
     ["horizontal", "Horizontal"],
     ["vertical", "Vertical"]
@@ -425,6 +441,8 @@ export const colorConfig = {
   hairV2PonytailTieColor: true,
   hairV2DoublePonytailTieColor: true,
   hairV2SideTiedLocksTieColor: true,
+  ferronniereMetalColor: true,
+  ferronniereGemColor: true,
   eyeIrisColor: true,
   mouthCavityColor: true,
   bodyColor: true,
@@ -461,6 +479,7 @@ export const toggleConfig = {
   showHairV2Ponytail: true,
   showHairV2DoublePonytail: true,
   showHairV2SideTiedLocks: true,
+  showFerronniere: true,
   showMoustache: true,
   showSoulPatch: true,
   showBeard: true,

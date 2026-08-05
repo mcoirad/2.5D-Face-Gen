@@ -341,7 +341,18 @@ const controlGroups = [
   },
   {
     title: "Accessories",
-    keys: ["showHairV2Headband", "hairV2HeadbandColor"],
+    keys: [
+      "showHairV2Headband",
+      "hairV2HeadbandColor",
+      "showFerronniere",
+      "ferronniereBandStyle",
+      "ferronnierePosition",
+      "ferronniereBandThickness",
+      "ferronniereMetalColor",
+      "ferronniereGemSize",
+      "ferronniereGemColor",
+      "ferronniereGemProtrusion"
+    ],
     open: true
   },
   {

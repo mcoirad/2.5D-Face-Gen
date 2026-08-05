@@ -7,6 +7,7 @@ import {
 } from "./geometry.js";
 import { makeHairV2Lock, solveHairV2, solveHeadband } from "./hairV2.js";
 import { solveDoublePonytail } from "./doublePonytail.js";
+import { solveFerronniere } from "./ferronniere.js";
 import { solvePonytail } from "./ponytail.js";
 import { solveSideTiedLocks } from "./sideTiedLocks.js";
 
@@ -260,6 +261,7 @@ export function solveFaceRig(params) {
     sideTiedLocks,
     facialHair,
     headband: solveHeadband(params, pose, head.structure),
+    ferronniere: solveFerronniere(params, pose, head.structure, features.nose.bridge),
     body,
     armor: solveArmor(params, pose, head.structure, body),
     ears: params.showEars ? solveEars(params, pose, head.structure, features, head.outline) : null,

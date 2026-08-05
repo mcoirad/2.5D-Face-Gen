@@ -304,6 +304,36 @@ const controlGroups = [
     open: true
   },
   {
+    title: "Double Ponytail",
+    keys: [
+      "showHairV2DoublePonytail",
+      "hairV2DoublePonytailLayout",
+      "hairV2DoublePonytailHeight",
+      "hairV2DoublePonytailSeparation",
+      "hairV2DoublePonytailLength",
+      "hairV2DoublePonytailWidth",
+      "hairV2DoublePonytailLift",
+      "hairV2DoublePonytailSplay",
+      "hairV2DoublePonytailAttractionArea",
+      "hairV2DoublePonytailTieColor"
+    ],
+    open: true
+  },
+  {
+    title: "Side Tied Locks",
+    keys: [
+      "showHairV2SideTiedLocks",
+      "hairV2SideTiedLocksSide",
+      "hairV2SideTiedLocksRootPosition",
+      "hairV2SideTiedLocksLength",
+      "hairV2SideTiedLocksWidth",
+      "hairV2SideTiedLocksCount",
+      "hairV2SideTiedLocksTiePosition",
+      "hairV2SideTiedLocksTieColor"
+    ],
+    open: true
+  },
+  {
     title: "Accessories",
     keys: ["showHairV2Headband", "hairV2HeadbandColor"],
     open: true

@@ -279,10 +279,64 @@ export function hairV2PonytailAttractionDistance(u, v, tieV) {
   return Math.hypot(longitudeDistance, latitudeDistance) / Math.SQRT2;
 }
 
-function isPonytailAttracted(attraction, u, v) {
-  const area = clamp(attraction?.area ?? 0, 0, 1);
-  return area > 0
-    && hairV2PonytailAttractionDistance(u, v, attraction.tieV) <= area;
+export function hairV2TieAttractionDistance(u, v, tieU, tieV) {
+  if (Math.abs(u) < PONYTAIL_ATTRACTION_FRONT_U) {
+    return Infinity;
+  }
+
+  const wrappedU = wrapScalpU(u);
+  const wrappedTieU = wrapScalpU(tieU);
+  const longitudeDistance = circularScalpDistance(wrappedU, wrappedTieU);
+  const eligibleBoundaries = [-U_RANGE, -PONYTAIL_ATTRACTION_FRONT_U, PONYTAIL_ATTRACTION_FRONT_U, U_RANGE];
+  const oppositeU = wrapScalpU(wrappedTieU + U_RANGE);
+  const maximumLongitudeDistance = Math.max(
+    ...eligibleBoundaries.map(candidate => circularScalpDistance(candidate, wrappedTieU)),
+    Math.abs(oppositeU) >= PONYTAIL_ATTRACTION_FRONT_U
+      ? circularScalpDistance(oppositeU, wrappedTieU)
+      : 0
+  );
+  const normalizedLongitude = maximumLongitudeDistance > 0
+    ? longitudeDistance / maximumLongitudeDistance
+    : 0;
+  const latitudeDistance = Math.abs(clamp(v, 0, 1) - clamp(tieV, 0, 1));
+
+  return Math.hypot(normalizedLongitude, latitudeDistance) / Math.SQRT2;
+}
+
+function wrapScalpU(u) {
+  let wrapped = u;
+  while (wrapped < -U_RANGE) wrapped += U_RANGE * 2;
+  while (wrapped > U_RANGE) wrapped -= U_RANGE * 2;
+  return wrapped;
+}
+
+function circularScalpDistance(a, b) {
+  const direct = Math.abs(a - b);
+  return Math.min(direct, U_RANGE * 2 - direct);
+}
+
+function resolveAttractionTarget(attraction, u, v) {
+  const targets = Array.isArray(attraction)
+    ? attraction
+    : attraction
+      ? [attraction]
+      : [];
+  let nearest = null;
+  let nearestDistance = Infinity;
+
+  for (const target of targets) {
+    const area = clamp(target?.area ?? 0, 0, 1);
+    if (area <= 0) continue;
+    const distance = target.tieU == null
+      ? hairV2PonytailAttractionDistance(u, v, target.tieV)
+      : hairV2TieAttractionDistance(u, v, target.tieU, target.tieV);
+    if (distance <= area && distance < nearestDistance) {
+      nearest = target;
+      nearestDistance = distance;
+    }
+  }
+
+  return nearest;
 }
 
 function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color, shineColor, curveMirror = 1, headband = null, attraction = null) {
@@ -324,8 +378,9 @@ function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color
 
   direction = normalizePoint(direction);
 
-  const attracted = isPonytailAttracted(attraction, u, v);
-  const tiePoint = attracted ? attraction.tiePoint : null;
+  const attractionTarget = resolveAttractionTarget(attraction, u, v);
+  const attracted = Boolean(attractionTarget);
+  const tiePoint = attractionTarget?.tiePoint ?? null;
 
   if (tiePoint) {
     direction = normalizePoint(subtractPoints(tiePoint, base));
@@ -348,9 +403,11 @@ function makeV2Lock(index, u, v, scalp, partU, partHalf, midpoint, params, color
   if (attracted) {
     result.lock.attracted = true;
     result.lock.rootUV = { u, v };
+    result.lock.attractionTargetId = attractionTarget.id ?? "ponytail";
     if (result.shine) {
       result.shine.attracted = true;
       result.shine.rootUV = { u, v };
+      result.shine.attractionTargetId = attractionTarget.id ?? "ponytail";
     }
   }
 
@@ -531,11 +588,15 @@ function finishLockGeometry(geometry, base, direction, width, rootRound, depthPo
     rootControl,
     notch: null,
     detailLines: [],
-    layer: depthPosition < FRONT_BACK_DEPTH_THRESHOLD ? "back" : "front",
+    layer: resolveHairV2Layer(depthPosition),
     fill,
     stroke,
     opacity
   };
+}
+
+export function resolveHairV2Layer(depthPosition) {
+  return depthPosition < FRONT_BACK_DEPTH_THRESHOLD ? "back" : "front";
 }
 
 // The original single-bend lock: root -> tip in one bezier per side. bias
@@ -752,7 +813,7 @@ function splitBeltRuns(lowPoints, highPoints) {
   let currentLayer = null;
 
   for (let i = 0; i < lowPoints.length; i += 1) {
-    const layer = lowPoints[i].depthPosition < FRONT_BACK_DEPTH_THRESHOLD ? "back" : "front";
+    const layer = resolveHairV2Layer(lowPoints[i].depthPosition);
 
     if (currentLayer !== null && layer !== currentLayer) {
       runs.push({ low: currentLow, high: currentHigh, layer: currentLayer });

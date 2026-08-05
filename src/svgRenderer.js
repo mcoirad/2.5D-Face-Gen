@@ -11,12 +11,15 @@ export function renderFaceSvg(rig) {
       ${renderArmor(rig.armor, false)}
       ${renderHelmetLayers(rig.helmet?.back)}
       ${renderEars(rig.ears, "back")}
+      ${renderDoublePonytailExtensions(rig.doublePonytail, "back")}
       ${renderPonytailExtension(rig.ponytail, "back")}
       ${renderHair(rig.hair, "back")}
       ${renderHairV2ScalpBase(rig.hairV2, "back")}
       ${renderHeadband(rig.headband, "back")}
       ${renderHairV2(rig.hairV2, "back")}
+      ${renderDoublePonytailTies(rig.doublePonytail, "back")}
       ${renderPonytailTie(rig.ponytail, "back")}
+      ${renderSideTiedLocks(rig.sideTiedLocks, "back")}
       ${renderFacialHair(rig.facialHair, "back")}
       ${renderHead(headPathD, rig.skinColor)}
       ${renderEars(rig.ears, "front")}
@@ -28,7 +31,10 @@ export function renderFaceSvg(rig) {
       ${renderHairV2ScalpBase(rig.hairV2, "front")}
       ${renderHeadband(rig.headband, "front")}
       ${renderHairV2(rig.hairV2, "front")}
+      ${renderDoublePonytailExtensions(rig.doublePonytail, "front")}
+      ${renderDoublePonytailTies(rig.doublePonytail, "front")}
       ${renderHelmetLayers(rig.helmet?.front)}
+      ${renderSideTiedLocks(rig.sideTiedLocks, "front")}
       ${rig.features.eyes.map(renderEye).join("")}
       ${rig.features.brows.map(renderBrow).join("")}
     </svg>
@@ -448,22 +454,37 @@ function hairV2LockShape(lock, strokeWidth = 2) {
 }
 
 function renderPonytailExtension(ponytail, layer) {
-  if (!ponytail || layer !== "back") {
+  if (!ponytail) {
     return "";
   }
 
   const shapes = [ponytail.tailMass, ...(ponytail.detailLocks ?? [])]
     .filter(Boolean)
+    .filter(lock => matchesHairLayer(lock, layer))
     .map(lock => hairV2LockShape(lock));
   const shapesMarkup = ponytail.sharedOutline
     ? renderSharedOutlineShapes(shapes)
     : shapes.map(renderHairShape).join("");
   const shines = [ponytail.tailShine, ...(ponytail.detailShines ?? [])]
     .filter(Boolean)
+    .filter(shine => matchesHairLayer(shine, layer))
     .map(renderHairShine)
     .join("");
 
   return shapesMarkup + shines;
+}
+
+function renderDoublePonytailExtensions(doublePonytail, layer) {
+  if (!doublePonytail) {
+    return "";
+  }
+
+  return doublePonytail.tails
+    .map(tail => renderPonytailExtension({
+      ...tail,
+      sharedOutline: doublePonytail.sharedOutline
+    }, layer))
+    .join("");
 }
 
 function renderPonytailTie(ponytail, layer) {
@@ -480,6 +501,34 @@ function renderPonytailTie(ponytail, layer) {
     strokeWidth: 2.5,
     opacity: tie.opacity
   });
+}
+
+function renderDoublePonytailTies(doublePonytail, layer) {
+  if (!doublePonytail) {
+    return "";
+  }
+  return doublePonytail.tails.map(tail => renderPonytailTie(tail, layer)).join("");
+}
+
+function renderSideTiedLocks(sideTiedLocks, layer) {
+  if (!sideTiedLocks) {
+    return "";
+  }
+
+  return sideTiedLocks.sections
+    .filter(section => section.layer === layer)
+    .map(section => {
+      const locks = [...section.upperLocks, ...section.lowerLocks];
+      const shapes = locks.map(lock => hairV2LockShape(lock));
+      const shapesMarkup = sideTiedLocks.sharedOutline
+        ? renderSharedOutlineShapes(shapes)
+        : shapes.map(renderHairShape).join("");
+      const shines = [...section.upperShines, ...section.lowerShines]
+        .map(renderHairShine)
+        .join("");
+      return shapesMarkup + shines + renderPonytailTie({ tie: section.tie }, layer);
+    })
+    .join("");
 }
 
 function renderHairV2(hairV2, layer) {

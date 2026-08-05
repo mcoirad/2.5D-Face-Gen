@@ -6,7 +6,9 @@ import {
   smoothstep
 } from "./geometry.js";
 import { makeHairV2Lock, solveHairV2, solveHeadband } from "./hairV2.js";
+import { solveDoublePonytail } from "./doublePonytail.js";
 import { solvePonytail } from "./ponytail.js";
+import { solveSideTiedLocks } from "./sideTiedLocks.js";
 
 const FACE_CENTER_Y = 10;
 const DEFAULTS = {
@@ -205,13 +207,23 @@ export function solveFaceRig(params) {
   const body = solveBody(params, pose, head.structure);
   const facialHair = solveFacialHair(params, pose, head, features);
   const ponytail = solvePonytail(params, pose, head.structure);
-  const ponytailAttraction = ponytail && params.hairV2PonytailAttractionArea > 0
-    ? {
-        area: params.hairV2PonytailAttractionArea,
-        tiePoint: ponytail.tiePoint,
-        tieV: ponytail.tieV
-      }
-    : null;
+  const doublePonytail = solveDoublePonytail(params, pose, head.structure);
+  const sideTiedLocks = solveSideTiedLocks(params, pose, head.structure);
+  const attractionTargets = [];
+  if (ponytail && params.hairV2PonytailAttractionArea > 0) {
+    attractionTargets.push({
+      id: "single",
+      area: params.hairV2PonytailAttractionArea,
+      tiePoint: ponytail.tiePoint,
+      tieV: ponytail.tieV
+    });
+  }
+  if (doublePonytail) {
+    attractionTargets.push(
+      ...doublePonytail.attractionTargets.filter(target => target.area > 0)
+    );
+  }
+  const ponytailAttraction = attractionTargets.length > 0 ? attractionTargets : null;
 
   return {
     showGuides: params.showGuides,
@@ -231,6 +243,8 @@ export function solveFaceRig(params) {
       ? solveHairV2(params, pose, head.structure, ponytailAttraction)
       : null,
     ponytail,
+    doublePonytail,
+    sideTiedLocks,
     facialHair,
     headband: solveHeadband(params, pose, head.structure),
     body,

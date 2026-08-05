@@ -238,6 +238,19 @@ select {
   top: 20px;
 }
 
+#stage {
+  line-height: 0;
+}
+
+#view-controls {
+  width: min(100%, 500px);
+  margin-top: 10px;
+}
+
+#view-controls .control-group {
+  margin-bottom: 0;
+}
+
 svg {
   width: min(100%, 500px);
   height: auto;

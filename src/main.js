@@ -26,6 +26,7 @@ const faceIo = document.getElementById("face-io");
 const controls = document.getElementById("controls");
 const landmarkControls = document.getElementById("landmark-controls");
 const stage = document.getElementById("stage");
+const viewControls = document.getElementById("view-controls");
 const landmarkLabels = {
   front: "Front",
   threeQuarter: "3/4",
@@ -44,12 +45,12 @@ const landmarkLabels = {
   earTopX: "Ear top X",
   earBottomX: "Ear bottom X"
 };
+const viewControlGroup = {
+  title: "View",
+  keys: ["yaw", "pitch"],
+  open: true
+};
 const controlGroups = [
-  {
-    title: "View",
-    keys: ["yaw", "pitch"],
-    open: true
-  },
   {
     title: "Face",
     keys: [
@@ -351,8 +352,14 @@ function formatControlName(key) {
 
 function createControls() {
   controls.innerHTML = "";
+  viewControls.innerHTML = "";
   landmarkControls.innerHTML = "";
   controls.appendChild(createRandomizerControl());
+
+  const viewGroupElement = createControlGroup(viewControlGroup);
+  if (viewGroupElement) {
+    viewControls.appendChild(viewGroupElement);
+  }
 
   for (const group of controlGroups) {
     const groupElement = createControlGroup(group);

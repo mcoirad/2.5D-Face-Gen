@@ -25,7 +25,7 @@ export function renderFaceSvg(rig) {
       ${renderEyeShading(rig.features.eyeShading, headPathD)}
       ${renderEars(rig.ears, "front")}
       ${rig.showGuides ? renderGuides(rig.head.guides) : ""}
-      ${renderNose(rig.features.nose)}
+      ${renderNose(rig.features.nose, rig.pose.amount)}
       ${renderMouth(rig.features.mouth, headPathD, rig.clipMouthToFace)}
       ${renderFacialHair(rig.facialHair, "front")}
       ${renderHair(rig.hair, "front")}
@@ -1001,23 +1001,40 @@ function lightenHex(value, amount) {
     .join("")}`;
 }
 
-function renderNose(nose) {
+function renderNose(nose, yawAmount) {
+  const nostrils = [nose.leftNostril, nose.rightNostril];
+  const farNostrilIndex = Math.abs(nostrils[0].x - 250) > Math.abs(nostrils[1].x - 250) ? 0 : 1;
+  const farNostril = nostrils[farNostrilIndex];
+  const nearNostril = nostrils[1 - farNostrilIndex];
+  const showBridgeSegment = nose.bridge.y >= nose.tip.y || yawAmount >= 0.5;
+
   return `
+      ${showBridgeSegment ? `
     <path
-      d="M ${nose.bridge.x} ${nose.bridge.y} L ${nose.tip.x} ${nose.tip.y} L ${nose.leftNostril.x} ${nose.leftNostril.y}"
+      class="nose-bridge-segment"
+      d="M ${nose.bridge.x} ${nose.bridge.y} L ${nose.tip.x} ${nose.tip.y}"
       fill="none"
       stroke="black"
       stroke-width="3"
       stroke-linecap="round"
-      stroke-linejoin="round"
-    />
+    />` : ""}
     <path
-      d="M ${nose.tip.x} ${nose.tip.y} L ${nose.rightNostril.x} ${nose.rightNostril.y}"
+      class="nose-near-nostril-segment"
+      d="M ${nose.tip.x} ${nose.tip.y} L ${nearNostril.x} ${nearNostril.y}"
       fill="none"
       stroke="black"
       stroke-width="3"
       stroke-linecap="round"
     />
+    ${yawAmount <= 0.5 ? `
+    <path
+      class="nose-far-nostril-segment"
+      d="M ${nose.tip.x} ${nose.tip.y} L ${farNostril.x} ${farNostril.y}"
+      fill="none"
+      stroke="black"
+      stroke-width="3"
+      stroke-linecap="round"
+    />` : ""}
   `;
 }
 

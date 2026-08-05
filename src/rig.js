@@ -14,6 +14,15 @@ const FACE_CENTER_Y = 10;
 const EYE_SHADING_SCALE = 1.4;
 const EYE_SHADING_DARKEN_FACTOR = 0.8;
 const EYE_SHADING_MIN_RISE = 10;
+const EYE_BAG_INNER_SAMPLE = 0.12;
+const EYE_BAG_OUTER_DOWN = 0.235;
+const EYE_BAG_OUTER_PAIR_INWARD = 0.13;
+const EYE_BAG_OUTER_PAIR_DOWN = 0.188;
+const EYE_BAG_OUTER_PAIR_SCALE = 1.1;
+const EYE_BAG_FIRST_CONTROL_OUT = 0.157;
+const EYE_BAG_FIRST_CONTROL_DOWN = 0.286;
+const EYE_BAG_SECOND_CONTROL_OUT = 0.482;
+const EYE_BAG_SECOND_CONTROL_DOWN = 0.406;
 const DEFAULT_SKIN_COLOR = "#f6f1e8";
 const DEFAULTS = {
   lowerFaceWidth: 145,
@@ -730,7 +739,13 @@ function solveFeatures(params, pose, structure) {
     makeBrow(projectStructure, browX[1], browY, params, featureVisibility[1], 1, pose.sign, eyes[1], browFill)
   ];
   const eyeShading = eyes.map((eye, index) => (
-    makeEyeShading(eye, brows[index], params.skinColor, Boolean(params.showEyeShading))
+    makeEyeShading(
+      eye,
+      brows[index],
+      params.skinColor,
+      Boolean(params.showEyeShading),
+      Boolean(params.showBaggyEyeShading)
+    )
   ));
 
   // Anchor the mouth vertically between the bottom of the nose and the chin,
@@ -3057,7 +3072,7 @@ function makeBrow(project, x, y, params, visible, anatomicalSide, poseSignValue,
   return brow;
 }
 
-function makeEyeShading(eye, brow, skinColor, enabled) {
+function makeEyeShading(eye, brow, skinColor, enabled, bagEnabled) {
   const scaleFromEyeCenter = point => ({
     x: eye.center.x + (point.x - eye.center.x) * EYE_SHADING_SCALE,
     y: eye.center.y + (point.y - eye.center.y) * EYE_SHADING_SCALE
@@ -3080,15 +3095,115 @@ function makeEyeShading(eye, brow, skinColor, enabled) {
     topControl: interpolatePoint(eyeShape.topControl, brow.bottomControl, interpolation),
     topInner: interpolatePoint(eyeShape.topInner, brow.bottomInner, interpolation)
   };
+  const bagShape = makeBaggyEyeShadingShape(eye, eyeShape);
   const baseColor = isHexColor(skinColor) ? skinColor : DEFAULT_SKIN_COLOR;
 
   return {
     visible: enabled && eye.visible && brow.visible,
+    bagVisible: bagEnabled && eye.visible,
     fillColor: darkenHex(baseColor, EYE_SHADING_DARKEN_FACTOR),
     interpolation,
     eyeShape,
-    bridgeShape
+    bridgeShape,
+    bagShape
   };
+}
+
+function makeBaggyEyeShadingShape(eye, eyeShape) {
+  const innerMid = midpoint(eye.quad.topInner, eye.quad.bottomInner);
+  const outerMid = midpoint(eye.quad.topOuter, eye.quad.bottomOuter);
+  const upperMid = midpoint(eye.quad.topInner, eye.quad.topOuter);
+  const lowerMid = midpoint(eye.quad.bottomInner, eye.quad.bottomOuter);
+  const outward = normalizePoint(subtractPoints(outerMid, innerMid));
+  const rawDown = subtractPoints(lowerMid, upperMid);
+  const downRemainder = subtractPoints(rawDown, scalePoint(outward, dotPoints(rawDown, outward)));
+  let down = Math.hypot(downRemainder.x, downRemainder.y) > Number.EPSILON
+    ? normalizePoint(downRemainder)
+    : { x: -outward.y, y: outward.x };
+
+  if (dotPoints(down, rawDown) < 0) {
+    down = scalePoint(down, -1);
+  }
+
+  const innerAnchor = eyeShape.bottomInner;
+  const innerOuter = quadPoint(
+    eyeShape.bottomInner,
+    eyeShape.bottomControl,
+    eyeShape.bottomOuter,
+    EYE_BAG_INNER_SAMPLE
+  );
+  const outwardSpan = Math.max(
+    pointProjection(eye.quad.topOuter, innerAnchor, outward),
+    pointProjection(eye.quad.bottomOuter, innerAnchor, outward),
+    Number.EPSILON
+  );
+  const outerAnchor = pointInFrame(
+    innerAnchor,
+    outward,
+    down,
+    outwardSpan,
+    EYE_BAG_OUTER_DOWN * outwardSpan
+  );
+  const innerPairDistance = pointDistance(innerAnchor, innerOuter);
+  const sampleOuterPairDistance = Math.hypot(
+    EYE_BAG_OUTER_PAIR_INWARD,
+    EYE_BAG_OUTER_PAIR_DOWN
+  ) * outwardSpan;
+  const outerPairDistance = Math.max(
+    sampleOuterPairDistance,
+    innerPairDistance * EYE_BAG_OUTER_PAIR_SCALE
+  );
+  const outerPairDirection = normalizePoint(addPoints(
+    scalePoint(outward, -EYE_BAG_OUTER_PAIR_INWARD),
+    scalePoint(down, EYE_BAG_OUTER_PAIR_DOWN)
+  ));
+  const lowerOuter = addPoints(outerAnchor, scalePoint(outerPairDirection, outerPairDistance));
+
+  return {
+    innerAnchor,
+    firstControl: pointInFrame(
+      innerAnchor,
+      outward,
+      down,
+      EYE_BAG_FIRST_CONTROL_OUT * outwardSpan,
+      EYE_BAG_FIRST_CONTROL_DOWN * outwardSpan
+    ),
+    lowerOuter,
+    outerAnchor,
+    secondControl: pointInFrame(
+      innerAnchor,
+      outward,
+      down,
+      EYE_BAG_SECOND_CONTROL_OUT * outwardSpan,
+      EYE_BAG_SECOND_CONTROL_DOWN * outwardSpan
+    ),
+    innerOuter
+  };
+}
+
+function midpoint(a, b) {
+  return {
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2
+  };
+}
+
+function dotPoints(a, b) {
+  return a.x * b.x + a.y * b.y;
+}
+
+function pointProjection(point, origin, axis) {
+  return dotPoints(subtractPoints(point, origin), axis);
+}
+
+function pointInFrame(origin, outward, down, outwardDistance, downDistance) {
+  return addPoints(
+    origin,
+    addPoints(
+      scalePoint(outward, outwardDistance),
+      scalePoint(down, downDistance)
+    )
+  );
 }
 
 function interpolatePoint(from, to, amount) {

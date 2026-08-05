@@ -197,6 +197,7 @@ export const defaultParams = {
   eyebrowSharpen: 0,
   showEyebrowStroke: true,
   showEyeShading: false,
+  showBaggyEyeShading: false,
   noseLength: 48,
   noseY: 0,
   noseWidth: 1,
@@ -470,6 +471,7 @@ export const toggleConfig = {
   showEyeCorner: true,
   showEyebrowStroke: true,
   showEyeShading: true,
+  showBaggyEyeShading: true,
   showUpperTeeth: true,
   showLowerTeeth: true
 };

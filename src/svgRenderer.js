@@ -824,7 +824,7 @@ function renderBrow(brow) {
 }
 
 function renderEyeShading(shading, headPathD) {
-  const visibleShading = (shading ?? []).filter(item => item.visible);
+  const visibleShading = (shading ?? []).filter(item => item.visible || item.bagVisible);
 
   if (!visibleShading.length) {
     return "";
@@ -838,6 +838,14 @@ function renderEyeShading(shading, headPathD) {
     </defs>
     <g clip-path="url(#eye-shading-head-clip)">
       ${visibleShading.map(item => `
+        ${item.bagVisible ? `
+        <path
+          class="eye-shading-bag"
+          d="${renderEyeShadingBagPath(item.bagShape)}"
+          fill="${item.fillColor}"
+          stroke="none"
+        />` : ""}
+        ${item.visible ? `
         <path
           class="eye-shading-eye"
           d="${renderEyePath({ quad: item.eyeShape })}"
@@ -849,10 +857,20 @@ function renderEyeShading(shading, headPathD) {
           d="${renderEyeShadingBridgePath(item.bridgeShape)}"
           fill="${item.fillColor}"
           stroke="none"
-        />
+        />` : ""}
       `).join("")}
     </g>
   `;
+}
+
+function renderEyeShadingBagPath(shape) {
+  return [
+    `M ${shape.innerAnchor.x} ${shape.innerAnchor.y}`,
+    `C ${shape.firstControl.x} ${shape.firstControl.y} ${shape.lowerOuter.x} ${shape.lowerOuter.y} ${shape.lowerOuter.x} ${shape.lowerOuter.y}`,
+    `L ${shape.outerAnchor.x} ${shape.outerAnchor.y}`,
+    `C ${shape.secondControl.x} ${shape.secondControl.y} ${shape.innerOuter.x} ${shape.innerOuter.y} ${shape.innerOuter.x} ${shape.innerOuter.y}`,
+    "Z"
+  ].join(" ");
 }
 
 function renderEyeShadingBridgePath(shape) {

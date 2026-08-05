@@ -173,7 +173,7 @@ const controlGroups = [
   },
   {
     title: "Shading",
-    keys: ["showEyeShading"],
+    keys: ["showEyeShading", "showBaggyEyeShading"],
     open: true
   },
   {

@@ -8,6 +8,7 @@ import {
   defaultOutlineLandmarks,
   solveFaceRig
 } from "../src/rig.js";
+import { renderFaceSvg } from "../src/svgRenderer.js";
 
 const EPSILON = 1e-6;
 const ATTACHED_BODY_PARAMS = {
@@ -127,6 +128,169 @@ function torsoCorners(params, body) {
     }
   };
 }
+
+function assertPointNear(actual, expected, label) {
+  assert.ok(pointsEqual(actual, expected), `${label}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`);
+}
+
+test("medial clavicle anchors straddle the sternal notch at front view", () => {
+  const body = solve({ yaw: 0, pitch: 0, clavicleMedialWidth: 20 }).body;
+  const { clavicleMedialLeft, clavicleMedialRight, sternalNotch } = body.landmarks;
+  const midpoint = {
+    x: (clavicleMedialLeft.x + clavicleMedialRight.x) / 2,
+    y: (clavicleMedialLeft.y + clavicleMedialRight.y) / 2
+  };
+
+  assertPointNear(midpoint, sternalNotch, "medial midpoint");
+  assert.ok(clavicleMedialLeft.x < sternalNotch.x);
+  assert.ok(clavicleMedialRight.x > sternalNotch.x);
+  assert.ok(Math.abs(clavicleMedialRight.x - clavicleMedialLeft.x - 20) <= EPSILON);
+});
+
+test("medial width changes anchor separation and collapses toward profile", () => {
+  const narrow = solve({ yaw: 0, pitch: 0, clavicleMedialWidth: 0 }).body;
+  const wide = solve({ yaw: 0, pitch: 0, clavicleMedialWidth: 40 }).body;
+
+  assertPointNear(narrow.landmarks.clavicleMedialLeft, narrow.landmarks.sternalNotch, "zero-width left anchor");
+  assertPointNear(narrow.landmarks.clavicleMedialRight, narrow.landmarks.sternalNotch, "zero-width right anchor");
+  assert.ok(Math.abs(
+    wide.landmarks.clavicleMedialRight.x - wide.landmarks.clavicleMedialLeft.x - 40
+  ) <= EPSILON);
+  assertPointNear(wide.landmarks.sternalNotch, narrow.landmarks.sternalNotch, "width-independent notch");
+  assertPointNear(wide.landmarks.clavicleLeft, narrow.landmarks.clavicleLeft, "width-independent lateral left");
+  assertPointNear(wide.landmarks.clavicleRight, narrow.landmarks.clavicleRight, "width-independent lateral right");
+
+  const profile = solve({ yaw: 1, pitch: 0, clavicleMedialWidth: 40 }).body.landmarks;
+  assert.ok(Math.abs(profile.clavicleMedialRight.x - profile.clavicleMedialLeft.x) <= EPSILON);
+});
+
+test("sternal notch and xiphoid Z rotate with yaw and pitch", () => {
+  const yaw = 0.5;
+  const positive = solve({
+    yaw,
+    pitch: 0,
+    sternalNotchZ: 60,
+    xiphoidZ: 60
+  }).body.landmarks;
+  const negative = solve({
+    yaw: -yaw,
+    pitch: 0,
+    sternalNotchZ: 60,
+    xiphoidZ: 60
+  }).body.landmarks;
+  const flat = solve({
+    yaw,
+    pitch: 0,
+    sternalNotchZ: 0,
+    xiphoidZ: 0
+  }).body.landmarks;
+
+  assert.ok(positive.sternalNotch.x < flat.sternalNotch.x, "positive yaw should move forward notch depth left");
+  assert.ok(positive.xiphoid.x < flat.xiphoid.x, "positive yaw should move forward xiphoid depth left");
+  assert.ok(Math.abs(positive.sternalNotch.x + negative.sternalNotch.x - 500) <= EPSILON);
+  assert.ok(Math.abs(positive.xiphoid.x + negative.xiphoid.x - 500) <= EPSILON);
+
+  const pitchedFlat = solve({ yaw: 0, pitch: 0.5, sternalNotchZ: 0, xiphoidZ: 0 }).body.landmarks;
+  const pitchedForward = solve({ yaw: 0, pitch: 0.5, sternalNotchZ: 60, xiphoidZ: 60 }).body.landmarks;
+
+  assert.ok(pitchedForward.sternalNotch.y < pitchedFlat.sternalNotch.y);
+  assert.ok(pitchedForward.xiphoid.y < pitchedFlat.xiphoid.y);
+});
+
+test("clavicle lines connect corresponding anchors with adjustable vertical bow", () => {
+  const arched = solve({ clavicleCurve: -12 }).body;
+  const dipped = solve({ clavicleCurve: 12 }).body;
+
+  assert.equal(arched.clavicleLines.length, 2);
+  assert.deepEqual(arched.clavicleLines.map(line => line.side), ["left", "right"]);
+
+  for (const [index, side] of ["left", "right"].entries()) {
+    const archedLine = arched.clavicleLines[index];
+    const dippedLine = dipped.clavicleLines[index];
+
+    assert.equal(archedLine.start, arched.landmarks[`clavicle${side[0].toUpperCase()}${side.slice(1)}`]);
+    assert.equal(archedLine.end, arched.landmarks[`clavicleMedial${side[0].toUpperCase()}${side.slice(1)}`]);
+    assertPointNear(archedLine.start, dippedLine.start, `${side} curve-independent start`);
+    assertPointNear(archedLine.end, dippedLine.end, `${side} curve-independent end`);
+    assert.ok(Math.abs(archedLine.control.x - dippedLine.control.x) <= EPSILON);
+    assert.ok(Math.abs(dippedLine.control.y - archedLine.control.y - 24) <= EPSILON);
+  }
+});
+
+test("clavicle visibility toggle hides paths without removing medial guide landmarks", () => {
+  assert.equal(defaultParams.showClavicles, true);
+  assert.equal(defaultParams.clavicleMedialWidth, 20);
+  assert.equal(defaultParams.clavicleCurve, 0);
+
+  const visible = solve({ showClavicles: true, showGuides: true });
+  const hidden = solve({ showClavicles: false, showGuides: true });
+  const visibleSvg = renderFaceSvg(visible);
+  const hiddenSvg = renderFaceSvg(hidden);
+
+  assert.equal(visible.body.clavicleLines.length, 2);
+  assert.equal(hidden.body.clavicleLines.length, 0);
+  assert.ok(hidden.body.landmarks.clavicleMedialLeft);
+  assert.ok(hidden.body.landmarks.clavicleMedialRight);
+  assert.ok(visibleSvg.includes('class="clavicle-left"'));
+  assert.ok(visibleSvg.includes('class="clavicle-right"'));
+  assert.equal(hiddenSvg.includes('class="clavicle-left"'), false);
+  assert.equal(hiddenSvg.includes('class="clavicle-right"'), false);
+  assert.ok(hiddenSvg.includes(`cx="${hidden.body.landmarks.clavicleMedialLeft.x}"`));
+  assert.ok(hiddenSvg.includes(`cx="${hidden.body.landmarks.clavicleMedialRight.x}"`));
+});
+
+test("clavicle SVG paths use quadratic rounded strokes in body layer order", () => {
+  const rig = solve({ showClavicles: true, showGuides: true, clavicleCurve: 8 });
+  const svg = renderFaceSvg(rig);
+  const leftPath = svg.match(/<path\s+class="clavicle-left"[\s\S]*?\/>/)?.[0];
+  const rightPath = svg.match(/<path\s+class="clavicle-right"[\s\S]*?\/>/)?.[0];
+
+  for (const [side, path] of [["left", leftPath], ["right", rightPath]]) {
+    assert.ok(path, `${side} path should render`);
+    assert.match(path, /d="M [^\"]+ Q [^\"]+"/);
+    assert.match(path, /fill="none"/);
+    assert.match(path, /stroke="black"/);
+    assert.match(path, /stroke-width="3"/);
+    assert.match(path, /stroke-linecap="round"/);
+  }
+
+  assert.ok(svg.indexOf('class="clavicle-left"') < svg.indexOf('stroke-dasharray="7 5"'));
+});
+
+test("clavicle and central chest geometry stays finite across control extremes", () => {
+  for (const yaw of [-1, 0, 1]) {
+    for (const pitch of [-0.5, 0, 0.5]) {
+      for (const clavicleMedialWidth of [0, 50]) {
+        for (const clavicleCurve of [-30, 30]) {
+          for (const sternalNotchZ of [0, 60]) {
+            for (const xiphoidZ of [0, 60]) {
+              const body = solve({
+                yaw,
+                pitch,
+                clavicleMedialWidth,
+                clavicleCurve,
+                sternalNotchZ,
+                xiphoidZ
+              }).body;
+              const geometry = [
+                body.landmarks.clavicleMedialLeft,
+                body.landmarks.clavicleMedialRight,
+                body.landmarks.sternalNotch,
+                body.landmarks.xiphoid,
+                ...body.clavicleLines.flatMap(line => [line.start, line.control, line.end])
+              ];
+
+              for (const point of geometry) {
+                assert.ok(Number.isFinite(point.x));
+                assert.ok(Number.isFinite(point.y));
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+});
 
 test("interior torso corners splice onto the ribcage instead of overriding it", () => {
   const params = { ...defaultParams, ...ATTACHED_BODY_PARAMS };

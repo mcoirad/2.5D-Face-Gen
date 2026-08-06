@@ -62,9 +62,23 @@ function renderBody(body, showGuides) {
   return `
     ${body.ribCageShape ? renderBodyShape(body.ribCageShape) : ""}
     ${renderBodyShape(body.torsoOutline)}
+    ${body.clavicleLines?.map(renderClavicleLine).join("") ?? ""}
     ${body.shoulders.map(renderShoulderGuide).join("")}
     ${showGuides && body.ribCageGuide ? renderGuidePath(body.ribCageGuide) : ""}
     ${showGuides ? renderBodyLandmarks(body.landmarks) : ""}
+  `;
+}
+
+function renderClavicleLine(line) {
+  return `
+    <path
+      class="clavicle-${line.side}"
+      d="M ${line.start.x} ${line.start.y} Q ${line.control.x} ${line.control.y} ${line.end.x} ${line.end.y}"
+      fill="none"
+      stroke="black"
+      stroke-width="3"
+      stroke-linecap="round"
+    />
   `;
 }
 
@@ -140,6 +154,8 @@ function renderBodyLandmarks(landmarks) {
   const points = [
     landmarks.clavicleLeft,
     landmarks.clavicleRight,
+    landmarks.clavicleMedialLeft,
+    landmarks.clavicleMedialRight,
     landmarks.axillaLeft,
     landmarks.axillaRight,
     landmarks.costalLeft,

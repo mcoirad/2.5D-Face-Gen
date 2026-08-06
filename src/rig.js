@@ -2177,6 +2177,7 @@ function solveBody(params, pose, structure) {
     return {
       torsoOutline: null,
       ribCageShape: null,
+      clavicleLines: [],
       shoulders: [],
       landmarks: {},
       ribCageGuide: [],
@@ -2207,13 +2208,25 @@ function solveBody(params, pose, structure) {
   // further down without needing to be re-tuned against the radius.
   const shoulderModelY = bottomY + params.shoulderRadius + params.shoulderGap;
   const orbitRadius = params.torsoWidth / 2;
+  const yawRadians = pose.yaw * Math.PI / 2;
+  const cosYaw = Math.cos(yawRadians);
+  const sinYaw = Math.sin(yawRadians);
+
+  // Projects an X/Z offset in torso model space after rotating it around the
+  // torso's vertical axis. Unlike createStructureProjector (pitch only), this
+  // makes authored depth move laterally under yaw as a 2.5D point should.
+  const projectTorsoPoint = (x, y, z = 0) => projectStructure(
+    anchorX + x * cosYaw - z * sinYaw,
+    y,
+    skull.z + x * sinYaw + z * cosYaw
+  );
 
   const orbitPoint = (baseAngle, y, radius) => {
-    const guideAngle = baseAngle - pose.yaw * Math.PI / 2;
-    const x = anchorX + Math.sin(guideAngle) * radius;
-    const z = skull.z + Math.cos(guideAngle) * radius;
-
-    return projectStructure(x, y, z);
+    return projectTorsoPoint(
+      Math.sin(baseAngle) * radius,
+      y,
+      Math.cos(baseAngle) * radius
+    );
   };
 
   const shoulderLeft = orbitPoint(-SHOULDER_BASE_ANGLE, shoulderModelY, orbitRadius);
@@ -2244,13 +2257,39 @@ function solveBody(params, pose, structure) {
   const costalLeft = orbitPoint(-costalAngle, costalY, costalRadius);
   const costalRight = orbitPoint(costalAngle, costalY, costalRadius);
 
-  // Group C landmarks: sit on the model's central axis (anchorX), same as
-  // skull.cx, so they need no yaw orbit at all - only a plausible forward z
-  // so pitch swings them believably.
+  // Group C landmarks: the sternal notch and xiphoid sit on the model's
+  // centerline, while the medial clavicle anchors straddle the notch. All use
+  // the torso projector so their forward Z shifts laterally under yaw.
   const sternalNotchY = bottomY + params.sternalNotchYDrop;
   const xiphoidY = sternalNotchY + params.xiphoidYDrop;
-  const sternalNotch = projectStructure(anchorX, sternalNotchY, params.sternalNotchZ);
-  const xiphoid = projectStructure(anchorX, xiphoidY, params.xiphoidZ);
+  const sternalNotch = projectTorsoPoint(0, sternalNotchY, params.sternalNotchZ);
+  const xiphoid = projectTorsoPoint(0, xiphoidY, params.xiphoidZ);
+  const clavicleMedialHalfWidth = params.clavicleMedialWidth / 2;
+  const clavicleMedialLeft = projectTorsoPoint(
+    -clavicleMedialHalfWidth,
+    sternalNotchY,
+    params.sternalNotchZ
+  );
+  const clavicleMedialRight = projectTorsoPoint(
+    clavicleMedialHalfWidth,
+    sternalNotchY,
+    params.sternalNotchZ
+  );
+  const makeClavicleLine = (side, start, end) => ({
+    side,
+    start,
+    end,
+    control: {
+      x: (start.x + end.x) / 2,
+      y: (start.y + end.y) / 2 + params.clavicleCurve
+    }
+  });
+  const clavicleLines = params.showClavicles
+    ? [
+        makeClavicleLine("left", clavicleLeft, clavicleMedialLeft),
+        makeClavicleLine("right", clavicleRight, clavicleMedialRight)
+      ]
+    : [];
 
   // Group B landmark: pecs reuse the same front/threeQuarter/side blend
   // machinery the face features use (structure.reference is already blended
@@ -2273,6 +2312,8 @@ function solveBody(params, pose, structure) {
   const landmarks = {
     clavicleLeft,
     clavicleRight,
+    clavicleMedialLeft,
+    clavicleMedialRight,
     axillaLeft,
     axillaRight,
     costalLeft,
@@ -2397,6 +2438,7 @@ function solveBody(params, pose, structure) {
   return {
     torsoOutline,
     ribCageShape,
+    clavicleLines,
     shoulders,
     landmarks,
     ribCageGuide,

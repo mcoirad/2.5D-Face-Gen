@@ -94,9 +94,12 @@ const controlGroups = [
   {
     title: "Chest Landmarks",
     keys: [
+      "showClavicles",
       "clavicleAngleOffset",
       "clavicleYDrop",
       "clavicleRadiusOffset",
+      "clavicleMedialWidth",
+      "clavicleCurve",
       "axillaAngleOffset",
       "axillaYDrop",
       "axillaRadiusInset",

@@ -174,7 +174,7 @@ test("front view produces concentric circular holder and gem geometry", () => {
   assert.ok(Math.abs(ferronniere.holder.center.y - ferronniere.gem.center.y) < EPSILON);
 });
 
-test("profile view flattens the holder while retaining mirrored gem depth", () => {
+test("profile view flattens only the attached halves and mirrors the rounded halves", () => {
   const leftProfile = solve({
     showFerronniere: true,
     yaw: -1,
@@ -187,13 +187,15 @@ test("profile view flattens the holder while retaining mirrored gem depth", () =
     pitch: 0,
     ferronniereGemProtrusion: 0.75
   }).ferronniere;
-  const leftHolder = bounds(leftProfile.holder.points);
   const leftGem = bounds(leftProfile.gem.points);
-  const rightHolder = bounds(rightProfile.holder.points);
   const rightGem = bounds(rightProfile.gem.points);
 
-  assert.ok(leftHolder.maxX - leftHolder.minX < EPSILON);
-  assert.ok(rightHolder.maxX - rightHolder.minX < EPSILON);
+  assert.equal(leftProfile.holder.outwardSide, 1);
+  assert.equal(rightProfile.holder.outwardSide, -1);
+  assert.ok(leftProfile.holder.halfWidths.attached < leftProfile.holder.halfWidths.outward * 0.1);
+  assert.ok(rightProfile.holder.halfWidths.attached < rightProfile.holder.halfWidths.outward * 0.1);
+  assert.equal(leftProfile.holder.halfWidths.outward, 10.8);
+  assert.equal(rightProfile.holder.halfWidths.outward, 10.8);
   assert.ok(leftGem.maxX - leftGem.minX > 0);
   assert.ok(rightGem.maxX - rightGem.minX > 0);
   const leftOffset = leftProfile.gem.center.x - leftProfile.holder.center.x;
@@ -205,24 +207,23 @@ test("profile view flattens the holder while retaining mirrored gem depth", () =
   assert.ok(rightProfile.gemSide.points.length >= 3);
 });
 
-test("gem protrusion grows continuously from a flat profile setting", () => {
-  const widths = [0, 0.5, 1].map(protrusion => {
+test("gem protrusion expands the asymmetric profile side wall continuously", () => {
+  const depths = [0, 0.5, 1].map(protrusion => {
     const ferronniere = solve({
       showFerronniere: true,
       yaw: 1,
       ferronniereGemProtrusion: protrusion
     }).ferronniere;
-    const gemBounds = bounds(ferronniere.gem.points);
     return {
-      width: gemBounds.maxX - gemBounds.minX,
-      offset: Math.abs(ferronniere.gem.center.x - ferronniere.holder.center.x)
+      offset: Math.abs(ferronniere.gem.center.x - ferronniere.holder.center.x),
+      wallShift: Math.abs(ferronniere.gemSide.center.x - ferronniere.holder.center.x)
     };
   });
 
-  assert.ok(widths[0].width < EPSILON);
-  assert.ok(widths[0].offset < EPSILON);
-  assert.ok(widths[0].width < widths[1].width && widths[1].width < widths[2].width);
-  assert.ok(widths[0].offset < widths[1].offset && widths[1].offset < widths[2].offset);
+  assert.ok(depths[0].offset < EPSILON);
+  assert.ok(depths[0].wallShift < EPSILON);
+  assert.ok(depths[0].offset < depths[1].offset && depths[1].offset < depths[2].offset);
+  assert.ok(depths[0].wallShift < depths[1].wallShift && depths[1].wallShift < depths[2].wallShift);
 });
 
 test("band and setting layers stay finite and pitch-aware across extreme poses", () => {

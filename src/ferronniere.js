@@ -54,7 +54,7 @@ export function solveFerronniere(params, pose, structure, features = null) {
   const bandAnchor = surfaceSample(anchorU, bandTheta, params, pose, structure, project);
   const holderAnchor = surfaceSample(anchorU, holderTheta, params, pose, structure, project);
   const frame = makeAdornmentFrame(holderAnchor.guideAngle);
-  const holder = makeFlatDisk(holderAnchor.position3, frame, holderRadius, project, {
+  const holder = makeSplitDisk(holderAnchor.position3, frame, holderRadius, params.pitch, project, {
     layer: resolveHairV2Layer(holderAnchor.depthPosition),
     fill: metalColor.fill,
     stroke: metalColor.stroke,
@@ -78,40 +78,30 @@ export function solveFerronniere(params, pose, structure, features = null) {
   const protrusion = clamp(params.ferronniereGemProtrusion, 0, 1);
   const gemDepth = gemRadius * protrusion;
   const gemFrontCenter3 = add3(holderAnchor.position3, scale3(frame.normal, gemDepth));
-  const gemBase = ellipseFromAxes(
+  const gemBase = makeSplitDisk(
     holderAnchor.position3,
-    scale3(frame.horizontal, gemRadius),
-    scale3(frame.vertical, gemRadius),
-    project
+    frame,
+    gemRadius,
+    params.pitch,
+    project,
+    {}
   );
-  const gemFrontBase = ellipseFromAxes(
+  const gemProjection = makeSplitDisk(
     gemFrontCenter3,
-    scale3(frame.horizontal, gemRadius),
-    scale3(frame.vertical, gemRadius),
-    project
+    frame,
+    gemRadius,
+    params.pitch,
+    project,
+    {}
   );
   const gemSide = {
-    points: convexHull([...gemBase.points, ...gemFrontBase.points]),
-    center: averagePoint([gemBase.center, gemFrontBase.center]),
+    points: convexHull([...gemBase.points, ...gemProjection.points]),
+    center: averagePoint([gemBase.center, gemProjection.center]),
     layer,
     fill: metalColor.fill,
     stroke: metalColor.stroke,
     opacity: 1
   };
-  // The visible cabochon cap is flatter than the full setting depth. That
-  // leaves some of the metal side wall readable at profile while remaining a
-  // true circle at yaw=0, where the normal axis projects entirely into depth.
-  const capNormalRadius = gemDepth * 0.45;
-  const gemProjection = projectedEllipsoid(
-    gemFrontCenter3,
-    [
-      { axis: frame.horizontal, radius: gemRadius },
-      { axis: frame.vertical, radius: gemRadius },
-      { axis: frame.normal, radius: capNormalRadius }
-    ],
-    params.pitch,
-    project
-  );
   const gem = {
     ...gemProjection,
     layer,
@@ -254,61 +244,48 @@ function makeAdornmentFrame(angle) {
   };
 }
 
-function makeFlatDisk(center3, frame, radius, project, style) {
-  const ellipse = ellipseFromAxes(
-    center3,
-    scale3(frame.horizontal, radius),
-    scale3(frame.vertical, radius),
-    project
-  );
-  return { ...ellipse, ...style, opacity: 1 };
-}
-
-function ellipseFromAxes(center3, axisA, axisB, project) {
+function makeSplitDisk(center3, frame, radius, pitch, project, style) {
   const center = project(center3.x, center3.y, center3.z);
-  const points = Array.from({ length: ELLIPSE_SEGMENTS }, (_, index) => {
-    const angle = index / ELLIPSE_SEGMENTS * Math.PI * 2;
-    const point3 = add3(
-      center3,
-      add3(scale3(axisA, Math.cos(angle)), scale3(axisB, Math.sin(angle)))
-    );
-    return project(point3.x, point3.y, point3.z);
+  const horizontalProjection = projectVector(frame.horizontal, pitch);
+  const normalProjection = projectVector(frame.normal, pitch);
+  const verticalProjection = projectVector(frame.vertical, pitch);
+  const tangentScale = clamp(Math.hypot(horizontalProjection.x, horizontalProjection.y), 0, 1);
+  const verticalScale = Math.max(0.2, Math.hypot(verticalProjection.x, verticalProjection.y));
+  const attachedRadius = radius * lerp(0.08, 1, tangentScale);
+  const outwardRadius = radius;
+  const outwardSide = Math.sign(normalProjection.x) || -1;
+  const verticalRadius = radius * verticalScale;
+  const halfSegments = ELLIPSE_SEGMENTS / 2;
+  const outwardHalf = Array.from({ length: halfSegments + 1 }, (_, index) => {
+    const angle = lerp(-Math.PI / 2, Math.PI / 2, index / halfSegments);
+    return {
+      x: center.x + outwardSide * outwardRadius * Math.cos(angle),
+      y: center.y + verticalRadius * Math.sin(angle)
+    };
   });
+  const attachedHalf = Array.from({ length: halfSegments + 1 }, (_, index) => {
+    const angle = lerp(Math.PI / 2, Math.PI * 3 / 2, index / halfSegments);
+    return {
+      x: center.x + outwardSide * attachedRadius * Math.cos(angle),
+      y: center.y + verticalRadius * Math.sin(angle)
+    };
+  });
+  const points = [
+    ...outwardHalf,
+    ...attachedHalf.slice(1, -1)
+  ];
   return {
     points,
     center,
-    screenRadii: projectedRadii(points, center)
+    screenRadii: [Math.max(outwardRadius, attachedRadius), verticalRadius],
+    halfWidths: {
+      outward: outwardRadius,
+      attached: attachedRadius
+    },
+    outwardSide,
+    ...style,
+    opacity: style.opacity ?? 1
   };
-}
-
-function projectedEllipsoid(center3, axes, pitch, project) {
-  const projectedAxes = axes.map(({ axis, radius }) => {
-    const vector = projectVector(scale3(axis, radius), pitch);
-    return vector;
-  });
-  const xx = projectedAxes.reduce((sum, axis) => sum + axis.x * axis.x, 0);
-  const xy = projectedAxes.reduce((sum, axis) => sum + axis.x * axis.y, 0);
-  const yy = projectedAxes.reduce((sum, axis) => sum + axis.y * axis.y, 0);
-  const trace = xx + yy;
-  const discriminant = Math.sqrt(Math.max(0, (xx - yy) ** 2 + 4 * xy * xy));
-  const majorValue = Math.max(0, (trace + discriminant) / 2);
-  const minorValue = Math.max(0, (trace - discriminant) / 2);
-  const angle = Math.abs(xy) > 1e-8 || Math.abs(xx - majorValue) > 1e-8
-    ? Math.atan2(majorValue - xx, xy)
-    : 0;
-  const majorRadius = Math.sqrt(majorValue);
-  const minorRadius = Math.sqrt(minorValue);
-  const major = { x: Math.cos(angle) * majorRadius, y: Math.sin(angle) * majorRadius };
-  const minor = { x: -Math.sin(angle) * minorRadius, y: Math.cos(angle) * minorRadius };
-  const center = project(center3.x, center3.y, center3.z);
-  const points = Array.from({ length: ELLIPSE_SEGMENTS }, (_, index) => {
-    const theta = index / ELLIPSE_SEGMENTS * Math.PI * 2;
-    return {
-      x: center.x + major.x * Math.cos(theta) + minor.x * Math.sin(theta),
-      y: center.y + major.y * Math.cos(theta) + minor.y * Math.sin(theta)
-    };
-  });
-  return { points, center, screenRadii: [majorRadius, minorRadius] };
 }
 
 function projectVector(vector, pitch) {
@@ -318,11 +295,6 @@ function projectVector(vector, pitch) {
   };
 }
 
-function projectedRadii(points, center) {
-  const xRadius = points.reduce((max, point) => Math.max(max, Math.abs(point.x - center.x)), 0);
-  const yRadius = points.reduce((max, point) => Math.max(max, Math.abs(point.y - center.y)), 0);
-  return [xRadius, yRadius];
-}
 
 function convexHull(points) {
   const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y);

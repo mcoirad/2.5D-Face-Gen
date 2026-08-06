@@ -625,48 +625,363 @@ function orientation(a, b, c) {
   return Math.sign((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
 }
 
-function segmentIntersectionPoint(a, b, c, d) {
-  const denom = (b.x - a.x) * (d.y - c.y) - (b.y - a.y) * (d.x - c.x);
+const POLYGON_UNION_EPSILON = 1e-6;
 
-  if (denom === 0) {
+function pointsNearlyEqual(a, b, epsilon = POLYGON_UNION_EPSILON) {
+  return Math.abs(a.x - b.x) <= epsilon && Math.abs(a.y - b.y) <= epsilon;
+}
+
+function pointOnSegment(point, a, b, epsilon = POLYGON_UNION_EPSILON) {
+  const cross = (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x);
+
+  if (Math.abs(cross) > epsilon) {
+    return false;
+  }
+
+  const dot = (point.x - a.x) * (point.x - b.x) + (point.y - a.y) * (point.y - b.y);
+
+  return dot <= epsilon;
+}
+
+function pointOnPolygonBoundary(point, polygon) {
+  return polygon.some((start, index) => pointOnSegment(
+    point,
+    start,
+    polygon[(index + 1) % polygon.length]
+  ));
+}
+
+function pointStrictlyInsidePolygon(point, polygon) {
+  return !pointOnPolygonBoundary(point, polygon) && isPointInPolygon(point, polygon);
+}
+
+function segmentIntersectionParameters(a, b, c, d) {
+  const abX = b.x - a.x;
+  const abY = b.y - a.y;
+  const cdX = d.x - c.x;
+  const cdY = d.y - c.y;
+  const denominator = abX * cdY - abY * cdX;
+
+  if (Math.abs(denominator) <= POLYGON_UNION_EPSILON) {
     return null;
   }
 
-  const t = ((c.x - a.x) * (d.y - c.y) - (c.y - a.y) * (d.x - c.x)) / denom;
+  const acX = c.x - a.x;
+  const acY = c.y - a.y;
+  const t = (acX * cdY - acY * cdX) / denominator;
+  const u = (acX * abY - acY * abX) / denominator;
 
-  return { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) };
+  if (
+    t < -POLYGON_UNION_EPSILON
+    || t > 1 + POLYGON_UNION_EPSILON
+    || u < -POLYGON_UNION_EPSILON
+    || u > 1 + POLYGON_UNION_EPSILON
+  ) {
+    return null;
+  }
+
+  return {
+    t: clamp(t, 0, 1),
+    u: clamp(u, 0, 1)
+  };
 }
 
-// Finds where segment a->b first crosses a closed polygon's boundary,
-// walking from a's side (returns the crossing closest to a) - used to clip
-// an edge at the ellipse boundary instead of letting it run into the interior.
-function firstSegmentPolygonCrossing(a, b, polygon) {
-  let closest = null;
-  let closestDistSq = Infinity;
+function pointAlongSegment(a, b, t) {
+  if (t <= POLYGON_UNION_EPSILON) {
+    return a;
+  }
 
-  for (let i = 0; i < polygon.length; i += 1) {
-    const c = polygon[i];
-    const d = polygon[(i + 1) % polygon.length];
+  if (t >= 1 - POLYGON_UNION_EPSILON) {
+    return b;
+  }
 
-    if (!segmentsIntersect(a, b, c, d)) {
-      continue;
-    }
+  return {
+    x: lerp(a.x, b.x, t),
+    y: lerp(a.y, b.y, t)
+  };
+}
 
-    const point = segmentIntersectionPoint(a, b, c, d);
+function normalizeUnionPolygon(points) {
+  const normalized = [];
 
-    if (!point) {
-      continue;
-    }
-
-    const distSq = (point.x - a.x) ** 2 + (point.y - a.y) ** 2;
-
-    if (distSq < closestDistSq) {
-      closestDistSq = distSq;
-      closest = point;
+  for (const point of points) {
+    if (!normalized.length || !pointsNearlyEqual(point, normalized[normalized.length - 1])) {
+      normalized.push(point);
     }
   }
 
-  return closest;
+  if (normalized.length > 1 && pointsNearlyEqual(normalized[0], normalized[normalized.length - 1])) {
+    normalized.pop();
+  }
+
+  return polygonSignedArea(normalized) < 0 ? normalized.reverse() : normalized;
+}
+
+function convexHull(points) {
+  const sorted = [...points]
+    .sort((a, b) => a.x - b.x || a.y - b.y)
+    .filter((point, index, entries) => index === 0 || !pointsNearlyEqual(point, entries[index - 1]));
+
+  if (sorted.length <= 2) {
+    return sorted;
+  }
+
+  const hullTurn = (a, b, c) => (
+    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+  );
+  const halfHull = entries => {
+    const half = [];
+
+    for (const point of entries) {
+      while (
+        half.length >= 2
+        && hullTurn(half[half.length - 2], half[half.length - 1], point) <= POLYGON_UNION_EPSILON
+      ) {
+        half.pop();
+      }
+
+      half.push(point);
+    }
+
+    return half;
+  };
+  const lower = halfHull(sorted);
+  const upper = halfHull([...sorted].reverse());
+
+  return normalizeUnionPolygon([...lower.slice(0, -1), ...upper.slice(0, -1)]);
+}
+
+function polygonHasNonAdjacentBoundaryContact(points) {
+  for (let firstIndex = 0; firstIndex < points.length; firstIndex += 1) {
+    const firstStart = points[firstIndex];
+    const firstEnd = points[(firstIndex + 1) % points.length];
+
+    for (let secondIndex = firstIndex + 1; secondIndex < points.length; secondIndex += 1) {
+      if (segmentsAreAdjacent(firstIndex, secondIndex, points.length)) {
+        continue;
+      }
+
+      const secondStart = points[secondIndex];
+      const secondEnd = points[(secondIndex + 1) % points.length];
+
+      if (
+        segmentsIntersect(firstStart, firstEnd, secondStart, secondEnd)
+        || pointOnSegment(firstStart, secondStart, secondEnd)
+        || pointOnSegment(firstEnd, secondStart, secondEnd)
+        || pointOnSegment(secondStart, firstStart, firstEnd)
+        || pointOnSegment(secondEnd, firstStart, firstEnd)
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function preparePolygonForUnion(points) {
+  const normalized = normalizeUnionPolygon(points);
+
+  // The torso ring can collapse or reorder at full profile because its two
+  // shoulders share an X coordinate while retaining different projected Y
+  // values. Its visible mass is still the outer envelope of those anchors,
+  // so use that envelope only when the authored walk no longer forms a valid
+  // simple boundary. Normal poses retain every intentional neck/shoulder bend.
+  return normalized.length < 3
+    || Math.abs(polygonSignedArea(normalized)) <= POLYGON_UNION_EPSILON
+    || polygonHasNonAdjacentBoundaryContact(normalized)
+    ? convexHull(normalized)
+    : normalized;
+}
+
+function uniqueSortedParameters(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const unique = [];
+
+  for (const value of sorted) {
+    if (!unique.length || Math.abs(value - unique[unique.length - 1]) > POLYGON_UNION_EPSILON) {
+      unique.push(value);
+    }
+  }
+
+  return unique;
+}
+
+function makeExteriorBoundarySegments(polygon, splitParameters, otherPolygon) {
+  const segments = [];
+
+  for (let edgeIndex = 0; edgeIndex < polygon.length; edgeIndex += 1) {
+    const start = polygon[edgeIndex];
+    const end = polygon[(edgeIndex + 1) % polygon.length];
+    const parameters = uniqueSortedParameters(splitParameters[edgeIndex]);
+
+    for (let splitIndex = 0; splitIndex < parameters.length - 1; splitIndex += 1) {
+      const from = pointAlongSegment(start, end, parameters[splitIndex]);
+      const to = pointAlongSegment(start, end, parameters[splitIndex + 1]);
+
+      if (pointsNearlyEqual(from, to)) {
+        continue;
+      }
+
+      const midpoint = {
+        x: (from.x + to.x) / 2,
+        y: (from.y + to.y) / 2
+      };
+
+      if (!pointStrictlyInsidePolygon(midpoint, otherPolygon)) {
+        segments.push({ from, to });
+      }
+    }
+  }
+
+  return segments;
+}
+
+function deduplicateBoundarySegments(segments) {
+  const unique = [];
+
+  for (const segment of segments) {
+    const duplicate = unique.some(candidate => (
+      pointsNearlyEqual(segment.from, candidate.from)
+      && pointsNearlyEqual(segment.to, candidate.to)
+    ) || (
+      pointsNearlyEqual(segment.from, candidate.to)
+      && pointsNearlyEqual(segment.to, candidate.from)
+    ));
+
+    if (!duplicate) {
+      unique.push(segment);
+    }
+  }
+
+  return unique;
+}
+
+function boundaryTurn(from, through, to) {
+  const incomingX = through.x - from.x;
+  const incomingY = through.y - from.y;
+  const outgoingX = to.x - through.x;
+  const outgoingY = to.y - through.y;
+  let turn = Math.atan2(
+    incomingX * outgoingY - incomingY * outgoingX,
+    incomingX * outgoingX + incomingY * outgoingY
+  );
+
+  if (turn < 0) {
+    turn += Math.PI * 2;
+  }
+
+  return turn;
+}
+
+function rotatePolygonToTopLeft(points) {
+  let startIndex = 0;
+
+  for (let index = 1; index < points.length; index += 1) {
+    if (
+      points[index].y < points[startIndex].y - POLYGON_UNION_EPSILON
+      || (
+        Math.abs(points[index].y - points[startIndex].y) <= POLYGON_UNION_EPSILON
+        && points[index].x < points[startIndex].x
+      )
+    ) {
+      startIndex = index;
+    }
+  }
+
+  return [...points.slice(startIndex), ...points.slice(0, startIndex)];
+}
+
+function stitchBoundarySegments(segments) {
+  const remaining = [...segments];
+  const polygons = [];
+
+  while (remaining.length) {
+    const first = remaining.shift();
+    const polygon = [first.from];
+    let current = first;
+    let closed = false;
+
+    while (polygon.length <= segments.length + 1) {
+      if (pointsNearlyEqual(current.to, polygon[0])) {
+        closed = true;
+        break;
+      }
+
+      polygon.push(current.to);
+      const candidateIndexes = [];
+
+      for (let index = 0; index < remaining.length; index += 1) {
+        if (pointsNearlyEqual(remaining[index].from, current.to)) {
+          candidateIndexes.push(index);
+        }
+      }
+
+      if (!candidateIndexes.length) {
+        break;
+      }
+
+      const nextIndex = candidateIndexes.reduce((bestIndex, candidateIndex) => {
+        const bestTurn = boundaryTurn(current.from, current.to, remaining[bestIndex].to);
+        const candidateTurn = boundaryTurn(current.from, current.to, remaining[candidateIndex].to);
+
+        return candidateTurn < bestTurn ? candidateIndex : bestIndex;
+      });
+
+      current = remaining.splice(nextIndex, 1)[0];
+    }
+
+    if (!closed) {
+      return null;
+    }
+
+    const normalized = normalizeUnionPolygon(polygon);
+
+    if (normalized.length >= 3 && Math.abs(polygonSignedArea(normalized)) > POLYGON_UNION_EPSILON) {
+      polygons.push(rotatePolygonToTopLeft(normalized));
+    }
+  }
+
+  return polygons.sort((a, b) => Math.abs(polygonSignedArea(b)) - Math.abs(polygonSignedArea(a)));
+}
+
+// Returns the sampled-polygon union as one outer cycle when the shapes overlap
+// and as two cycles when they are disjoint. Both inputs are walked clockwise;
+// each edge is split at intersections and portions inside the other polygon
+// are removed before the surviving boundary segments are stitched together.
+function unionPolygonOutlines(firstPoints, secondPoints) {
+  const first = preparePolygonForUnion(firstPoints);
+  const second = preparePolygonForUnion(secondPoints);
+
+  if (first.length < 3 || second.length < 3) {
+    return null;
+  }
+
+  const firstSplits = first.map(() => [0, 1]);
+  const secondSplits = second.map(() => [0, 1]);
+
+  for (let firstIndex = 0; firstIndex < first.length; firstIndex += 1) {
+    const firstStart = first[firstIndex];
+    const firstEnd = first[(firstIndex + 1) % first.length];
+
+    for (let secondIndex = 0; secondIndex < second.length; secondIndex += 1) {
+      const secondStart = second[secondIndex];
+      const secondEnd = second[(secondIndex + 1) % second.length];
+      const intersection = segmentIntersectionParameters(firstStart, firstEnd, secondStart, secondEnd);
+
+      if (intersection) {
+        firstSplits[firstIndex].push(intersection.t);
+        secondSplits[secondIndex].push(intersection.u);
+      }
+    }
+  }
+
+  const segments = deduplicateBoundarySegments([
+    ...makeExteriorBoundarySegments(first, firstSplits, second),
+    ...makeExteriorBoundarySegments(second, secondSplits, first)
+  ]);
+
+  return stitchBoundarySegments(segments);
 }
 
 function solveFeatures(params, pose, structure) {
@@ -2000,127 +2315,25 @@ function solveBody(params, pose, structure) {
     ry: params.ribCageHeight / 2,
     z: skull.z
   };
-  const ribCageGuide = sampleEllipse(projectStructure, ribCage, 48, ribCageTiltRadians);
+  const torsoPolygon = [
+    neckTopLeft,
+    neckTopRight,
+    neckBottomRight,
+    shoulderTopRight,
+    torsoBottomRight,
+    torsoBottomLeft,
+    shoulderTopLeft,
+    neckBottomLeft
+  ];
+  const buildMergedBody = tiltRadians => {
+    const guide = sampleEllipse(projectStructure, ribCage, 48, tiltRadians);
+    const polygons = unionPolygonOutlines(torsoPolygon, guide);
+    const valid = polygons
+      && polygons.length > 0
+      && polygons.every(points => points.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)))
+      && polygons.every(points => !polygonSelfIntersects(points));
 
-  // Merged neck+torso silhouette: the torso's solid outline is the union of
-  // the trapezoid (shoulderTop*/torsoBottom*) and the ribCage ellipse -
-  // trapezoid corners outside the ellipse become sharp vertices ("poke-out"
-  // bumps), corners inside it are dropped so the outline follows the
-  // ellipse's own arc through that region instead. The top corners are
-  // additionally compared against two dedicated points on the ellipse's own
-  // top arc - whichever is more outward wins and is what the neck's bottom
-  // corners connect to.
-  //
-  // Built as a function of the tilt angle (rather than inline) because the
-  // neck's own bottom corners are fixed while the ellipse's top-connector
-  // points rotate with the tilt - for a narrow band of moderate tilt values
-  // at extreme yaw this can swing the straight neck-to-connector edge back
-  // across the arc's own nearby curve. Rather than solving that with full
-  // edge-intersection clipping, build the outline, and if it comes out
-  // self-intersecting (checked with the same polygonSelfIntersects the head
-  // outline's own profile extension already uses), retry once with the tilt
-  // disabled - a rigid, simple ellipse is always safe, so this guarantees a
-  // valid shape at the cost of the tilt not applying for that narrow case.
-  const buildTorsoOutlinePoints = tiltRadians => {
-    const topAngleOffsetRadians = params.ribCageTopConnectorAngle * Math.PI / 180;
-    const ellipseTopTheta = -Math.PI / 2;
-    const rightTopTheta = ellipseTopTheta + topAngleOffsetRadians;
-    const leftTopTheta = ellipseTopTheta - topAngleOffsetRadians;
-    const ellipseTopRight = ellipsePointAtAngle(projectStructure, ribCage, rightTopTheta, tiltRadians);
-    const ellipseTopLeft = ellipsePointAtAngle(projectStructure, ribCage, leftTopTheta, tiltRadians);
-
-    const topConnectorRight = ellipseTopRight.x > shoulderTopRight.x ? ellipseTopRight : shoulderTopRight;
-    const topConnectorLeft = ellipseTopLeft.x < shoulderTopLeft.x ? ellipseTopLeft : shoulderTopLeft;
-
-    const lowerArc = sampleEllipseArc(
-      projectStructure,
-      ribCage,
-      rightTopTheta,
-      leftTopTheta + Math.PI * 2,
-      32,
-      tiltRadians
-    );
-
-    const ribCageScreenCenter = projectStructure(ribCage.cx, ribCage.cy, ribCage.z);
-    // The splice/trim below sorts by each point's *geometric* atan2 angle
-    // around ribCageScreenCenter, not the ellipse's parametric theta - those
-    // two angle systems diverge for rx != ry, so every unwrap reference has
-    // to be a geometric angle too, or points near the seam can wrap wrong.
-    const angleFromRibCageCenter = point => Math.atan2(
-      point.y - ribCageScreenCenter.y,
-      point.x - ribCageScreenCenter.x
-    );
-    const arcStartAngle = angleFromRibCageCenter(lowerArc[0]);
-
-    // Whenever the shoulder corner (not the ellipse's own top point) wins as
-    // the connector, the boundary should follow the trapezoid's own straight
-    // side edge down toward the bottom corner rather than routing through
-    // the ellipse arc between them - that arc would cut back inward past
-    // where the direct edge already goes, producing a self-crossing lobe.
-    const rightUsesDirectEdge = topConnectorRight === shoulderTopRight;
-    const leftUsesDirectEdge = topConnectorLeft === shoulderTopLeft;
-
-    // If the bottom corner is itself outside the ellipse, the direct edge
-    // can go straight to it (both ends legitimately outside). If it's
-    // INSIDE, going all the way to it would plow straight through the
-    // ellipse's interior (a real bug - the edge is supposed to stop at the
-    // ellipse boundary, not at the corner) - so clip the shoulder-to-corner
-    // segment against the sampled ellipse polygon instead and pivot there.
-    // Falls back to the corner itself only in the degenerate case where no
-    // crossing is found (e.g. the whole segment is already inside).
-    const findPivot = (shoulderTop, bottomCorner) => {
-      if (!isPointInPolygon(bottomCorner, ribCageGuide)) {
-        return bottomCorner;
-      }
-
-      return firstSegmentPolygonCrossing(shoulderTop, bottomCorner, ribCageGuide) ?? bottomCorner;
-    };
-
-    const rightPivot = rightUsesDirectEdge ? findPivot(shoulderTopRight, torsoBottomRight) : null;
-    const leftPivot = leftUsesDirectEdge ? findPivot(shoulderTopLeft, torsoBottomLeft) : null;
-
-    // Only splice a bottom corner into the smooth arc route when its side
-    // ISN'T already using a direct edge - direct-edge sides add their pivot
-    // as an explicit vertex below instead, then trim the arc to resume from
-    // its angular position.
-    const splicedLowerArc = spliceCornersIntoArc(
-      lowerArc,
-      [
-        ...(rightUsesDirectEdge ? [] : [torsoBottomRight]),
-        ...(leftUsesDirectEdge ? [] : [torsoBottomLeft])
-      ],
-      ribCageScreenCenter,
-      arcStartAngle
-    );
-
-    const findArcTrimIndex = (targetTheta, keepAfter) => {
-      const index = splicedLowerArc.findIndex(point => {
-        const theta = unwrapAngleFrom(angleFromRibCageCenter(point), arcStartAngle);
-        return keepAfter ? theta > targetTheta : theta >= targetTheta;
-      });
-
-      return index === -1 ? splicedLowerArc.length : index;
-    };
-
-    const arcSliceStart = rightUsesDirectEdge
-      ? findArcTrimIndex(unwrapAngleFrom(angleFromRibCageCenter(rightPivot), arcStartAngle), true)
-      : 0;
-    const arcSliceEnd = leftUsesDirectEdge
-      ? findArcTrimIndex(unwrapAngleFrom(angleFromRibCageCenter(leftPivot), arcStartAngle), false)
-      : splicedLowerArc.length;
-    const trimmedLowerArc = splicedLowerArc.slice(arcSliceStart, arcSliceEnd);
-
-    return [
-      neckTopLeft,
-      neckTopRight,
-      neckBottomRight,
-      topConnectorRight,
-      ...(rightUsesDirectEdge ? [rightPivot] : []),
-      ...trimmedLowerArc,
-      ...(leftUsesDirectEdge ? [leftPivot] : []),
-      topConnectorLeft,
-      neckBottomLeft
-    ];
+    return { guide, polygons, valid };
   };
 
   // ribCageSeparate lets the ellipse union above be A/B tested against the
@@ -2129,28 +2342,50 @@ function solveBody(params, pose, structure) {
   // and the ellipse instead renders as its own solid overlapping shape.
   let outlinePoints;
   let ribCageShape = null;
+  let ribCageGuide = sampleEllipse(projectStructure, ribCage, 48, ribCageTiltRadians);
 
   if (params.ribCageSeparate) {
-    outlinePoints = [
-      neckTopLeft,
-      neckTopRight,
-      neckBottomRight,
-      shoulderTopRight,
-      torsoBottomRight,
-      torsoBottomLeft,
-      shoulderTopLeft,
-      neckBottomLeft
-    ];
+    outlinePoints = torsoPolygon;
     ribCageShape = {
       points: ribCageGuide,
       fill: params.bodyColor,
       stroke: "black"
     };
   } else {
-    const tiltedOutlinePoints = buildTorsoOutlinePoints(ribCageTiltRadians);
-    outlinePoints = ribCageTiltRadians !== 0 && polygonSelfIntersects(tiltedOutlinePoints)
-      ? buildTorsoOutlinePoints(0)
-      : tiltedOutlinePoints;
+    let merged = buildMergedBody(ribCageTiltRadians);
+
+    if (!merged.valid && ribCageTiltRadians !== 0) {
+      merged = buildMergedBody(0);
+    }
+
+    ribCageGuide = merged.guide;
+
+    if (merged.valid) {
+      const torsoCycleIndex = merged.polygons.findIndex(polygon => (
+        polygon.some(point => pointsNearlyEqual(point, neckTopLeft))
+      ));
+      const outlineIndex = torsoCycleIndex === -1 ? 0 : torsoCycleIndex;
+
+      outlinePoints = merged.polygons[outlineIndex];
+      const extraShape = merged.polygons.find((_, index) => index !== outlineIndex);
+
+      if (extraShape) {
+        ribCageShape = {
+          points: extraShape,
+          fill: params.bodyColor,
+          stroke: "black"
+        };
+      }
+    } else {
+      // Degenerate or numerically ambiguous inputs should remain renderable.
+      // Keep the two source shapes instead of inventing a connector chord.
+      outlinePoints = torsoPolygon;
+      ribCageShape = {
+        points: ribCageGuide,
+        fill: params.bodyColor,
+        stroke: "black"
+      };
+    }
   }
 
   const torsoOutline = {
@@ -2376,50 +2611,6 @@ function ellipseHalfWidthAtY(ellipse, modelY) {
   }
 
   return ellipse.rx * Math.sqrt(1 - t * t);
-}
-
-// Inserts `corners` into `arcPoints` (an already-ordered, non-wrapping walk of
-// consecutive angles starting at `arcStartTheta`) wherever each corner is
-// OUTSIDE the ellipse the arc was sampled from - found via isPointInPolygon
-// against the arc itself - then positioned by comparing the corner's own
-// angle around `center` against each sample point's angle, both measured in
-// the same monotonically increasing (unwrapped) space as arcStartTheta.
-// Corners that are inside are dropped entirely (the arc already curves
-// smoothly through that region).
-function spliceCornersIntoArc(arcPoints, corners, center, arcStartTheta) {
-  const outsideCorners = corners
-    .filter(corner => !isPointInPolygon(corner, arcPoints))
-    .map(corner => ({
-      point: corner,
-      theta: unwrapAngleFrom(Math.atan2(corner.y - center.y, corner.x - center.x), arcStartTheta)
-    }));
-
-  if (!outsideCorners.length) {
-    return arcPoints;
-  }
-
-  const arcWithThetas = arcPoints.map(point => ({
-    point,
-    theta: unwrapAngleFrom(Math.atan2(point.y - center.y, point.x - center.x), arcStartTheta)
-  }));
-
-  return [...arcWithThetas, ...outsideCorners]
-    .sort((a, b) => a.theta - b.theta)
-    .map(entry => entry.point);
-}
-
-// Shifts `angle` by whole turns of 2*PI until it is >= `reference`, so a set
-// of angles measured independently via atan2 (range -PI..PI) can be sorted
-// consistently against an arc's own monotonically increasing theta sequence
-// that may itself run past a single 2*PI turn.
-function unwrapAngleFrom(angle, reference) {
-  let unwrapped = angle;
-
-  while (unwrapped < reference) {
-    unwrapped += Math.PI * 2;
-  }
-
-  return unwrapped;
 }
 
 function makeHelmetShell(project, skull, pose) {

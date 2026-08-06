@@ -1,4 +1,4 @@
-import { clamp, lerp } from "./geometry.js";
+import { clamp, lerp, smoothstep } from "./geometry.js";
 import { resolveHairV2Layer } from "./hairV2.js";
 import { createStructureProjector, resolveHairColor } from "./rig.js";
 
@@ -12,7 +12,7 @@ const ELLIPSE_SEGMENTS = 24;
 const FOREHEAD_THETA_UPPER = 0.08;
 const FOREHEAD_THETA_LOWER = 0.32;
 
-export function solveFerronniere(params, pose, structure, noseBridge = null) {
+export function solveFerronniere(params, pose, structure, features = null) {
   if (!params.showFerronniere) {
     return null;
   }
@@ -47,8 +47,9 @@ export function solveFerronniere(params, pose, structure, noseBridge = null) {
   const holderRadius = gemRadius * 1.35;
   const connectorLength = clamp(gemSize * 0.35, 4, 10);
   const holderTheta = bandTheta + (holderRadius + connectorLength) / Math.max(structure.skull.ry, 1);
-  const anchorU = noseBridge
-    ? solveFrontSurfaceU(noseBridge.x, holderTheta, pose, structure, project)
+  const pendantTargetX = resolvePendantTargetX(pose, features);
+  const anchorU = pendantTargetX !== null
+    ? solveFrontSurfaceU(pendantTargetX, holderTheta, pose, structure, project)
     : 0;
   const bandAnchor = surfaceSample(anchorU, bandTheta, params, pose, structure, project);
   const holderAnchor = surfaceSample(anchorU, holderTheta, params, pose, structure, project);
@@ -128,8 +129,38 @@ export function solveFerronniere(params, pose, structure, noseBridge = null) {
     gem,
     anchorPoint: bandAnchor.point,
     anchorU,
+    pendantTargetX,
     layer
   };
+}
+
+function resolvePendantTargetX(pose, features) {
+  const bridgeX = features?.nose?.bridge?.x;
+  const brows = features?.brows;
+  if (!Number.isFinite(bridgeX)) {
+    return null;
+  }
+  if (!Array.isArray(brows) || brows.length < 2) {
+    return bridgeX;
+  }
+
+  const innerCenters = brows.slice(0, 2).map(brow => ({
+    x: (brow.topInner.x + brow.bottomInner.x) / 2,
+    y: (brow.topInner.y + brow.bottomInner.y) / 2
+  }));
+  if (!innerCenters.every(point => Number.isFinite(point.x) && Number.isFinite(point.y))) {
+    return bridgeX;
+  }
+
+  const interbrowX = (innerCenters[0].x + innerCenters[1].x) / 2;
+  // Preserve the authored bridge at front and profile, where it already reads
+  // as the facial midpoint. Through three-quarter yaw, move halfway toward the
+  // actual visual gap between the solved eyebrow shapes, then yield smoothly
+  // back to the bridge approaching profile.
+  const awayFromFront = smoothstep(0.15, 0.4, pose.amount);
+  const towardProfile = smoothstep(0.75, 1, pose.amount);
+  const interbrowWeight = 0.5 * awayFromFront * (1 - towardProfile);
+  return lerp(bridgeX, interbrowX, interbrowWeight);
 }
 
 function solveFrontSurfaceU(targetScreenX, theta, pose, structure, project) {

@@ -88,16 +88,37 @@ test("the complete band-position range stays on the skull ellipse's lower half",
   }
 });
 
-test("pendant holder tracks the authored nose bridge across yaw", () => {
-  for (const yaw of [-0.75, -0.5, 0, 0.5, 0.75]) {
-    const rig = solve({
-      showFerronniere: true,
-      yaw,
-      pitch: 0
-    });
+test("pendant uses the bridge at front and a bridge-interbrow midpoint through three-quarter yaw", () => {
+  const front = solve({ showFerronniere: true, yaw: 0, pitch: 0 });
+  assert.ok(Math.abs(front.ferronniere.holder.center.x - front.features.nose.bridge.x) < EPSILON);
 
-    assert.ok(Math.abs(rig.ferronniere.holder.center.x - rig.features.nose.bridge.x) < EPSILON);
+  for (const yaw of [-0.75, -0.5, 0.5, 0.75]) {
+    const rig = solve({ showFerronniere: true, yaw, pitch: 0 });
+    const innerBrowCenters = rig.features.brows.map(brow => (
+      (brow.topInner.x + brow.bottomInner.x) / 2
+    ));
+    const interbrowX = (innerBrowCenters[0] + innerBrowCenters[1]) / 2;
+    const bridgeInterbrowMidpointX = (rig.features.nose.bridge.x + interbrowX) / 2;
+
+    assert.ok(Math.abs(
+      rig.ferronniere.pendantTargetX - bridgeInterbrowMidpointX
+    ) < EPSILON);
+    assert.ok(Math.abs(
+      rig.ferronniere.holder.center.x - bridgeInterbrowMidpointX
+    ) < EPSILON);
   }
+});
+
+test("pendant blends continuously from the three-quarter midpoint back to the profile bridge", () => {
+  const rig = solve({ showFerronniere: true, yaw: 0.875, pitch: 0 });
+  const innerBrowCenters = rig.features.brows.map(brow => (
+    (brow.topInner.x + brow.bottomInner.x) / 2
+  ));
+  const interbrowX = (innerBrowCenters[0] + innerBrowCenters[1]) / 2;
+  const bridgeX = rig.features.nose.bridge.x;
+
+  assert.ok(rig.ferronniere.pendantTargetX > bridgeX);
+  assert.ok(rig.ferronniere.pendantTargetX < interbrowX);
 });
 
 test("pendant tracking remains head-fixed and mirrored at profile clamps", () => {

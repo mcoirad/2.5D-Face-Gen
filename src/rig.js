@@ -261,7 +261,7 @@ export function solveFaceRig(params) {
     sideTiedLocks,
     facialHair,
     headband: solveHeadband(params, pose, head.structure),
-    ferronniere: solveFerronniere(params, pose, head.structure, features.nose.bridge),
+    ferronniere: solveFerronniere(params, pose, head.structure, features),
     body,
     armor: solveArmor(params, pose, head.structure, body),
     ears: params.showEars ? solveEars(params, pose, head.structure, features, head.outline) : null,

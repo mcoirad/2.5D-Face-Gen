@@ -7,8 +7,11 @@ export function renderFaceSvg(rig) {
     <svg viewBox="0 0 500 500" role="img" aria-label="2.5D anime face preview">
       ${rig.removeStrokes ? renderRemoveStrokesStyle() : ""}
       ${renderArmor(rig.armor, true)}
-      ${renderBody(rig.body, rig.showGuides)}
+      ${renderBodyBase(rig.body)}
+      ${renderGarmentLayer(rig.body?.clothing, "clothing")}
+      ${renderGarmentLayer(rig.armor?.breastplate, "breastplate")}
       ${renderArmor(rig.armor, false)}
+      ${renderBodyGuides(rig.body, rig.showGuides)}
       ${renderFerronniere(rig.ferronniere, "back")}
       ${renderHelmetLayers(rig.helmet?.back)}
       ${renderEars(rig.ears, "back")}
@@ -54,7 +57,7 @@ function renderRemoveStrokesStyle() {
   `;
 }
 
-function renderBody(body, showGuides) {
+function renderBodyBase(body) {
   if (!body || !body.torsoOutline) {
     return "";
   }
@@ -63,9 +66,68 @@ function renderBody(body, showGuides) {
     ${body.ribCageShape ? renderBodyShape(body.ribCageShape) : ""}
     ${renderBodyShape(body.torsoOutline)}
     ${body.clavicleLines?.map(renderClavicleLine).join("") ?? ""}
+  `;
+}
+
+function renderBodyGuides(body, showGuides) {
+  if (!body || !body.torsoOutline) {
+    return "";
+  }
+
+  return `
     ${body.shoulders.map(renderShoulderGuide).join("")}
     ${showGuides && body.ribCageGuide ? renderGuidePath(body.ribCageGuide) : ""}
     ${showGuides ? renderBodyLandmarks(body.landmarks) : ""}
+  `;
+}
+
+function renderGarmentLayer(garment, className) {
+  if (!garment?.shapes?.length) {
+    return "";
+  }
+
+  const maskId = `${className}-cutout-mask`;
+  const mask = garment.cutout?.length >= 3
+    ? `
+      <defs>
+        <mask id="${maskId}" maskUnits="userSpaceOnUse" x="-1000" y="-1000" width="2500" height="2500">
+          <rect x="-1000" y="-1000" width="2500" height="2500" fill="white" />
+          <path d="${renderPointPath(garment.cutout)} Z" fill="black" />
+        </mask>
+      </defs>
+    `
+    : "";
+  const maskAttribute = garment.cutout?.length >= 3 ? ` mask="url(#${maskId})"` : "";
+  const shapes = garment.shapes.map(shape => `
+    <path
+      class="${className}-shell ${shape.id}"
+      d="${renderPointPath(shape.points)} Z"
+      fill="${shape.fill}"
+      stroke="${shape.stroke}"
+      stroke-width="4"
+      stroke-linejoin="round"
+    />
+  `).join("");
+  const neckline = garment.neckline?.length >= 2
+    ? `
+      <path
+        class="${className}-neckline"
+        d="${renderPointPath(garment.neckline)}"
+        fill="none"
+        stroke="black"
+        stroke-width="4"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    `
+    : "";
+
+  return `
+    ${mask}
+    <g class="${className}-layer"${maskAttribute}>
+      ${shapes}
+    </g>
+    ${neckline}
   `;
 }
 

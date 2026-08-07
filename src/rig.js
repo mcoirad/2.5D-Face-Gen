@@ -218,7 +218,9 @@ export function solveFaceRig(params) {
     ? extendOutlineWithProfile(head.outline, features, params.outlineIgnoreMouthProtrusion)
     : head.outline;
 
-  const body = solveBody(params, pose, head.structure);
+  const solvedBody = solveBody(params, pose, head.structure);
+  const armor = solveArmor(params, pose, head.structure, solvedBody);
+  const { garmentSource: _garmentSource, ...body } = solvedBody;
   const facialHair = solveFacialHair(params, pose, head, features);
   const ponytail = solvePonytail(params, pose, head.structure);
   const doublePonytail = solveDoublePonytail(params, pose, head.structure);
@@ -263,7 +265,7 @@ export function solveFaceRig(params) {
     headband: solveHeadband(params, pose, head.structure),
     ferronniere: solveFerronniere(params, pose, head.structure, features),
     body,
-    armor: solveArmor(params, pose, head.structure, body),
+    armor,
     ears: params.showEars ? solveEars(params, pose, head.structure, features, head.outline) : null,
     helmet: solveHelmet(params, pose, head.structure, features),
     features,
@@ -982,6 +984,173 @@ function unionPolygonOutlines(firstPoints, secondPoints) {
   ]);
 
   return stitchBoundarySegments(segments);
+}
+
+const GARMENT_ROUND_JOIN_STEP = Math.PI / 12;
+const GARMENT_MITER_LIMIT = 3;
+
+function lineIntersection(firstPoint, firstDirection, secondPoint, secondDirection) {
+  const denominator = firstDirection.x * secondDirection.y - firstDirection.y * secondDirection.x;
+
+  if (Math.abs(denominator) <= POLYGON_UNION_EPSILON) {
+    return null;
+  }
+
+  const between = subtractPoints(secondPoint, firstPoint);
+  const distance = (between.x * secondDirection.y - between.y * secondDirection.x) / denominator;
+
+  return {
+    x: firstPoint.x + firstDirection.x * distance,
+    y: firstPoint.y + firstDirection.y * distance
+  };
+}
+
+function polygonEdge(points, index) {
+  const from = points[index];
+  const to = points[(index + 1) % points.length];
+  const x = to.x - from.x;
+  const y = to.y - from.y;
+  const length = Math.hypot(x, y);
+
+  if (length <= POLYGON_UNION_EPSILON) {
+    return null;
+  }
+
+  const direction = { x: x / length, y: y / length };
+
+  return {
+    direction,
+    // normalizeUnionPolygon uses positive signed area, which is clockwise in
+    // screen coordinates. Rotating the edge counter-clockwise therefore
+    // points away from the polygon interior.
+    normal: { x: direction.y, y: -direction.x }
+  };
+}
+
+function isValidGarmentPolygon(points) {
+  return points.length >= 3
+    && points.every(point => Number.isFinite(point.x) && Number.isFinite(point.y))
+    && Math.abs(polygonSignedArea(points)) > POLYGON_UNION_EPSILON
+    && !polygonHasNonAdjacentBoundaryContact(points)
+    && !polygonSelfIntersects(points);
+}
+
+function offsetPolygon(points, distance, joinStyle) {
+  const source = normalizeUnionPolygon(points);
+
+  if (distance <= POLYGON_UNION_EPSILON || source.length < 3) {
+    return source;
+  }
+
+  const edges = source.map((_, index) => polygonEdge(source, index));
+
+  if (edges.some(edge => !edge)) {
+    return null;
+  }
+
+  const result = [];
+
+  for (let index = 0; index < source.length; index += 1) {
+    const point = source[index];
+    const previousEdge = edges[(index - 1 + edges.length) % edges.length];
+    const nextEdge = edges[index];
+    const previousShifted = {
+      x: point.x + previousEdge.normal.x * distance,
+      y: point.y + previousEdge.normal.y * distance
+    };
+    const nextShifted = {
+      x: point.x + nextEdge.normal.x * distance,
+      y: point.y + nextEdge.normal.y * distance
+    };
+    const turn = previousEdge.direction.x * nextEdge.direction.y
+      - previousEdge.direction.y * nextEdge.direction.x;
+    const intersection = lineIntersection(
+      previousShifted,
+      previousEdge.direction,
+      nextShifted,
+      nextEdge.direction
+    );
+
+    if (turn > POLYGON_UNION_EPSILON && joinStyle === "round") {
+      const dot = clamp(
+        previousEdge.normal.x * nextEdge.normal.x + previousEdge.normal.y * nextEdge.normal.y,
+        -1,
+        1
+      );
+      const angle = Math.acos(dot);
+      const segments = Math.max(1, Math.ceil(angle / GARMENT_ROUND_JOIN_STEP));
+      const startAngle = Math.atan2(previousEdge.normal.y, previousEdge.normal.x);
+
+      for (let segment = 0; segment <= segments; segment += 1) {
+        const theta = startAngle + angle * segment / segments;
+        result.push({
+          x: point.x + Math.cos(theta) * distance,
+          y: point.y + Math.sin(theta) * distance
+        });
+      }
+    } else if (turn > POLYGON_UNION_EPSILON && joinStyle === "miter") {
+      const miterLength = intersection ? Math.hypot(intersection.x - point.x, intersection.y - point.y) : Infinity;
+
+      if (intersection && miterLength <= distance * GARMENT_MITER_LIMIT) {
+        result.push(intersection);
+      } else {
+        result.push(previousShifted, nextShifted);
+      }
+    } else if (turn > POLYGON_UNION_EPSILON) {
+      result.push(previousShifted, nextShifted);
+    } else if (intersection) {
+      result.push(intersection);
+    } else {
+      result.push(nextShifted);
+    }
+  }
+
+  const normalized = normalizeUnionPolygon(result);
+
+  return isValidGarmentPolygon(normalized) ? normalized : null;
+}
+
+function offsetPolygonWithFallback(points, distance, joinStyle) {
+  const preferred = offsetPolygon(points, distance, joinStyle);
+
+  if (preferred) {
+    return preferred;
+  }
+
+  const beveled = offsetPolygon(points, distance, "bevel");
+
+  return beveled ?? normalizeUnionPolygon(points);
+}
+
+function mergePolygonCycles(polygons) {
+  const cycles = [];
+
+  for (const polygon of polygons) {
+    let pending = normalizeUnionPolygon(polygon);
+    let index = 0;
+
+    while (index < cycles.length) {
+      const merged = unionPolygonOutlines(cycles[index], pending);
+
+      if (merged?.length === 1) {
+        pending = merged[0];
+        cycles.splice(index, 1);
+        index = 0;
+      } else {
+        index += 1;
+      }
+    }
+
+    cycles.push(pending);
+  }
+
+  return cycles.sort((a, b) => Math.abs(polygonSignedArea(b)) - Math.abs(polygonSignedArea(a)));
+}
+
+function offsetPolygonCycles(polygons, distance, joinStyle) {
+  return mergePolygonCycles(polygons.map(points => (
+    offsetPolygonWithFallback(points, distance, joinStyle)
+  )));
 }
 
 function solveFeatures(params, pose, structure) {
@@ -2172,19 +2341,187 @@ function shoulderPolarPoint(shoulder, point) {
 // is the "at rest" longitude each orbits from as the head yaws.
 const SHOULDER_BASE_ANGLE = Math.PI / 2;
 
+function unionGarmentSource(torsoPolygon, ribCageGuide) {
+  const merged = unionPolygonOutlines(torsoPolygon, ribCageGuide);
+
+  if (
+    merged?.length
+    && merged.every(points => isValidGarmentPolygon(points))
+  ) {
+    return merged;
+  }
+
+  return [
+    preparePolygonForUnion(torsoPolygon),
+    preparePolygonForUnion(ribCageGuide)
+  ].filter(points => isValidGarmentPolygon(points));
+}
+
+function polygonBounds(polygons) {
+  const points = polygons.flat();
+
+  return {
+    minX: Math.min(...points.map(point => point.x)),
+    maxX: Math.max(...points.map(point => point.x)),
+    minY: Math.min(...points.map(point => point.y)),
+    maxY: Math.max(...points.map(point => point.y))
+  };
+}
+
+function solveClothing(params, garmentSource) {
+  if (!params.showClothing || !garmentSource?.polygons.length) {
+    return null;
+  }
+
+  const collarHeight = clamp(params.clothingCollarHeight ?? 0, 0, garmentSource.neckLength);
+  const collarAmount = garmentSource.neckLength > POLYGON_UNION_EPSILON
+    ? collarHeight / garmentSource.neckLength
+    : 0;
+  const collarTopLeft = {
+    x: lerp(garmentSource.neckBottomLeft.x, garmentSource.neckTopLeft.x, collarAmount),
+    y: lerp(garmentSource.neckBottomLeft.y, garmentSource.neckTopLeft.y, collarAmount)
+  };
+  const collarTopRight = {
+    x: lerp(garmentSource.neckBottomRight.x, garmentSource.neckTopRight.x, collarAmount),
+    y: lerp(garmentSource.neckBottomRight.y, garmentSource.neckTopRight.y, collarAmount)
+  };
+  const clothingTorsoPolygon = [
+    collarTopLeft,
+    collarTopRight,
+    garmentSource.neckBottomRight,
+    garmentSource.shoulderTopRight,
+    garmentSource.torsoBottomRight,
+    garmentSource.torsoBottomLeft,
+    garmentSource.shoulderTopLeft,
+    garmentSource.neckBottomLeft
+  ];
+  const sourcePolygons = unionGarmentSource(clothingTorsoPolygon, garmentSource.ribCageGuide);
+  const polygons = offsetPolygonCycles(
+    sourcePolygons,
+    clamp(params.clothingOffset ?? 3, 0, 12),
+    "round"
+  );
+  const bounds = polygonBounds(polygons);
+  const openingWidth = clamp(params.clothingCollarOpeningWidth ?? 0.4, 0, 1);
+  const requestedDepth = Math.max(0, params.clothingCollarOpeningDepth ?? 0);
+  const collarMidpoint = {
+    x: (collarTopLeft.x + collarTopRight.x) / 2,
+    y: (collarTopLeft.y + collarTopRight.y) / 2
+  };
+  const effectiveDepth = Math.min(requestedDepth, Math.max(0, bounds.maxY - collarMidpoint.y - 1));
+  const maskTop = bounds.minY - 100;
+  let neckline = [collarTopLeft, collarTopRight];
+
+  if (openingWidth > POLYGON_UNION_EPSILON && effectiveDepth > POLYGON_UNION_EPSILON) {
+    const leftAmount = (1 - openingWidth) / 2;
+    const rightAmount = 1 - leftAmount;
+    const leftLip = {
+      x: lerp(collarTopLeft.x, collarTopRight.x, leftAmount),
+      y: lerp(collarTopLeft.y, collarTopRight.y, leftAmount)
+    };
+    const rightLip = {
+      x: lerp(collarTopLeft.x, collarTopRight.x, rightAmount),
+      y: lerp(collarTopLeft.y, collarTopRight.y, rightAmount)
+    };
+    const tip = {
+      x: collarMidpoint.x,
+      y: collarMidpoint.y + effectiveDepth
+    };
+    neckline = [
+      collarTopLeft,
+      leftLip,
+      tip,
+      rightLip,
+      collarTopRight
+    ];
+  }
+  const cutout = [
+    { x: collarTopLeft.x, y: maskTop },
+    ...neckline,
+    { x: collarTopRight.x, y: maskTop }
+  ];
+
+  return {
+    shapes: polygons.map((points, index) => ({
+      id: `clothing-${index}`,
+      points,
+      fill: params.clothingColor,
+      stroke: "black"
+    })),
+    cutout,
+    neckline,
+    collarTopLeft,
+    collarTopRight,
+    collarHeight
+  };
+}
+
+function solveBreastplate(params, garmentSource) {
+  if (!params.showBreastplate || !garmentSource?.polygons.length) {
+    return null;
+  }
+
+  const polygons = offsetPolygonCycles(
+    garmentSource.polygons,
+    clamp(params.breastplateOffset ?? 8, 0, 24),
+    "miter"
+  );
+  const bounds = polygonBounds(polygons);
+  const neckCenterX = (garmentSource.neckBottomLeft.x + garmentSource.neckBottomRight.x) / 2;
+  const neckBaselineY = (garmentSource.neckBottomLeft.y + garmentSource.neckBottomRight.y) / 2;
+  const clearance = clamp(params.breastplateNeckClearance ?? 8, 0, 40);
+  const leftX = clamp(garmentSource.neckBottomLeft.x - clearance, bounds.minX, neckCenterX);
+  const rightX = clamp(garmentSource.neckBottomRight.x + clearance, neckCenterX, bounds.maxX);
+  const depth = Math.min(
+    Math.max(0, params.breastplateNeckDepth ?? 24),
+    Math.max(0, bounds.maxY - neckBaselineY - 1)
+  );
+  const neckline = [];
+
+  for (let sample = 0; sample <= 16; sample += 1) {
+    const amount = sample / 16;
+    neckline.push({
+      x: lerp(leftX, rightX, amount),
+      y: neckBaselineY + 4 * amount * (1 - amount) * depth
+    });
+  }
+
+  const maskTop = bounds.minY - 100;
+  const cutout = [
+    { x: leftX, y: maskTop },
+    ...neckline,
+    { x: rightX, y: maskTop }
+  ];
+
+  return {
+    shapes: polygons.map((points, index) => ({
+      id: `breastplate-${index}`,
+      points,
+      fill: params.armorColor,
+      stroke: "black"
+    })),
+    cutout,
+    neckline,
+    neckClearance: clearance,
+    neckDepth: depth
+  };
+}
+
 function solveBody(params, pose, structure) {
   if (!params.showBody) {
     return {
       torsoOutline: null,
       ribCageShape: null,
       clavicleLines: [],
+      clothing: null,
       shoulders: [],
       landmarks: {},
       ribCageGuide: [],
       shoulderTopLeft: null,
       shoulderTopRight: null,
       neckBottomLeft: null,
-      neckBottomRight: null
+      neckBottomRight: null,
+      garmentSource: null
     };
   }
 
@@ -2446,24 +2783,56 @@ function solveBody(params, pose, structure) {
     fill: params.bodyColor,
     stroke: "black"
   };
+  const necklessTorsoPolygon = [
+    neckBottomLeft,
+    neckBottomRight,
+    shoulderTopRight,
+    torsoBottomRight,
+    torsoBottomLeft,
+    shoulderTopLeft
+  ];
+  const garmentSource = {
+    polygons: unionGarmentSource(necklessTorsoPolygon, ribCageGuide),
+    ribCageGuide,
+    neckTopLeft,
+    neckTopRight,
+    neckBottomLeft,
+    neckBottomRight,
+    shoulderTopLeft,
+    shoulderTopRight,
+    torsoBottomLeft,
+    torsoBottomRight,
+    neckLength: Math.max(0, params.neckLength)
+  };
+  const clothing = solveClothing(params, garmentSource);
 
   return {
     torsoOutline,
     ribCageShape,
     clavicleLines,
+    clothing,
     shoulders,
     landmarks,
     ribCageGuide,
     shoulderTopLeft,
     shoulderTopRight,
     neckBottomLeft,
-    neckBottomRight
+    neckBottomRight,
+    garmentSource
   };
 }
 
 function solveArmor(params, pose, structure, body) {
+  const empty = { pauldronLeft: null, pauldronRight: null, breastplate: null };
+
   if (!params.showArmor || !body.shoulderTopLeft || !body.shoulderTopRight || body.shoulders.length < 2) {
-    return { pauldronLeft: null, pauldronRight: null };
+    return empty;
+  }
+
+  const breastplate = solveBreastplate(params, body.garmentSource);
+
+  if (params.showPauldrons === false) {
+    return { ...empty, breastplate };
   }
 
   const pauldronReference = interpolatePauldronLandmarks(defaultPauldronLandmarks, pose.amount);
@@ -2509,7 +2878,8 @@ function solveArmor(params, pose, structure, body) {
 
   return {
     pauldronLeft: buildPauldron(body.shoulders[0], body.shoulderTopLeft, body.neckBottomLeft, mirroredReference, true, pose.sign > 0),
-    pauldronRight: buildPauldron(body.shoulders[1], body.shoulderTopRight, body.neckBottomRight, pauldronReference, false, pose.sign < 0)
+    pauldronRight: buildPauldron(body.shoulders[1], body.shoulderTopRight, body.neckBottomRight, pauldronReference, false, pose.sign < 0),
+    breastplate
   };
 }
 

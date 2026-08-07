@@ -133,6 +133,17 @@ function assertPointNear(actual, expected, label) {
   assert.ok(pointsEqual(actual, expected), `${label}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`);
 }
 
+function boundsForShapes(shapes) {
+  const points = shapes.flatMap(shape => shape.points);
+
+  return {
+    minX: Math.min(...points.map(point => point.x)),
+    maxX: Math.max(...points.map(point => point.x)),
+    minY: Math.min(...points.map(point => point.y)),
+    maxY: Math.max(...points.map(point => point.y))
+  };
+}
+
 test("medial clavicle anchors straddle the sternal notch at front view", () => {
   const body = solve({ yaw: 0, pitch: 0, clavicleMedialWidth: 20 }).body;
   const { clavicleMedialLeft, clavicleMedialRight, sternalNotch } = body.landmarks;
@@ -315,6 +326,284 @@ test("clavicle and central chest geometry stays finite across control extremes",
                   assert.ok(Number.isFinite(point.y));
                 }
               }
+            }
+          }
+        }
+      }
+    }
+  }
+});
+
+test("clothing and breastplate defaults preserve existing faces", () => {
+  assert.equal(defaultParams.showClothing, false);
+  assert.equal(defaultParams.clothingColor, "#3f4a5a");
+  assert.equal(defaultParams.clothingOffset, 3);
+  assert.equal(defaultParams.clothingCollarHeight, 0);
+  assert.equal(defaultParams.clothingCollarOpeningWidth, 0.4);
+  assert.equal(defaultParams.clothingCollarOpeningDepth, 0);
+  assert.equal(defaultParams.showArmor, true);
+  assert.equal(defaultParams.showPauldrons, true);
+  assert.equal(defaultParams.showBreastplate, false);
+  assert.equal(defaultParams.breastplateOffset, 8);
+  assert.equal(defaultParams.breastplateNeckClearance, 8);
+  assert.equal(defaultParams.breastplateNeckDepth, 24);
+
+  const rig = solve();
+
+  assert.equal(rig.body.clothing, null);
+  assert.equal(rig.armor.breastplate, null);
+  assert.ok(rig.armor.pauldronLeft);
+  assert.ok(rig.armor.pauldronRight);
+});
+
+test("clothing collar follows the neck and the centered V responds to width and depth", () => {
+  const low = solve({
+    yaw: 0,
+    pitch: 0,
+    showClothing: true,
+    clothingOffset: 0,
+    clothingCollarHeight: 0,
+    clothingCollarOpeningDepth: 0
+  }).body;
+  const narrow = solve({
+    yaw: 0,
+    pitch: 0,
+    showClothing: true,
+    clothingOffset: 0,
+    clothingCollarHeight: 30,
+    clothingCollarOpeningWidth: 0.25,
+    clothingCollarOpeningDepth: 20
+  }).body;
+  const wide = solve({
+    yaw: 0,
+    pitch: 0,
+    showClothing: true,
+    clothingOffset: 0,
+    clothingCollarHeight: 30,
+    clothingCollarOpeningWidth: 0.75,
+    clothingCollarOpeningDepth: 40
+  }).body;
+
+  assertPointNear(low.clothing.collarTopLeft, low.neckBottomLeft, "zero-height left collar");
+  assertPointNear(low.clothing.collarTopRight, low.neckBottomRight, "zero-height right collar");
+  assert.equal(low.clothing.neckline.length, 2, "zero-depth opening should remain closed");
+  assert.ok(narrow.clothing.collarTopLeft.y < low.clothing.collarTopLeft.y);
+  assert.equal(narrow.clothing.collarHeight, 30);
+  assert.ok(wide.clothing.neckline[2].y > narrow.clothing.neckline[2].y, "deeper V should move its tip down");
+
+  const narrowWidth = narrow.clothing.neckline[3].x - narrow.clothing.neckline[1].x;
+  const wideWidth = wide.clothing.neckline[3].x - wide.clothing.neckline[1].x;
+  assert.ok(wideWidth > narrowWidth, "opening width should expand symmetrically");
+  assert.ok(Math.abs(wide.clothing.neckline[2].x - 250) <= EPSILON, "V should remain centered");
+
+  const exposedNeckPoint = {
+    x: (low.neckBottomLeft.x + low.neckBottomRight.x) / 2,
+    y: low.neckBottomLeft.y - 1
+  };
+  assert.equal(isPointInPolygon(exposedNeckPoint, low.clothing.cutout), true);
+});
+
+test("polygon offsets keep clothing closer than the default breastplate and use distinct joins", () => {
+  const rig = solve({
+    yaw: 0,
+    pitch: 0,
+    showClothing: true,
+    showBreastplate: true,
+    clothingCollarOpeningDepth: 0
+  });
+  const source = solve({
+    yaw: 0,
+    pitch: 0,
+    showClothing: true,
+    clothingOffset: 0,
+    clothingCollarOpeningDepth: 0
+  });
+  const sourceBounds = boundsForShapes(source.body.clothing.shapes);
+  const clothingBounds = boundsForShapes(rig.body.clothing.shapes);
+  const breastplateBounds = boundsForShapes(rig.armor.breastplate.shapes);
+
+  assert.ok(clothingBounds.minX < sourceBounds.minX);
+  assert.ok(clothingBounds.maxX > sourceBounds.maxX);
+  assert.ok(breastplateBounds.minX < clothingBounds.minX);
+  assert.ok(breastplateBounds.maxX > clothingBounds.maxX);
+  assert.ok(rig.body.clothing.shapes[0].points.length > rig.armor.breastplate.shapes[0].points.length);
+});
+
+test("breastplate U opening clears the neck and responds monotonically", () => {
+  const shallow = solve({
+    yaw: 0,
+    pitch: 0,
+    showBreastplate: true,
+    breastplateNeckClearance: 0,
+    breastplateNeckDepth: 10
+  });
+  const deep = solve({
+    yaw: 0,
+    pitch: 0,
+    showBreastplate: true,
+    breastplateNeckClearance: 20,
+    breastplateNeckDepth: 40
+  });
+  const shallowU = shallow.armor.breastplate;
+  const deepU = deep.armor.breastplate;
+  const shallowMid = shallowU.neckline[8];
+  const deepMid = deepU.neckline[8];
+
+  assert.ok(deepU.neckline[0].x < shallowU.neckline[0].x);
+  assert.ok(deepU.neckline.at(-1).x > shallowU.neckline.at(-1).x);
+  assert.ok(deepMid.y > shallowMid.y);
+  assert.ok(Math.abs(deepMid.y - deep.body.neckBottomLeft.y - 40) <= EPSILON);
+
+  const neckPoint = {
+    x: (deep.body.neckBottomLeft.x + deep.body.neckBottomRight.x) / 2,
+    y: deep.body.neckBottomLeft.y - 1
+  };
+  assert.equal(isPointInPolygon(neckPoint, deepU.cutout), true, "neck should lie inside the armor cutout");
+});
+
+test("clothing and breastplate geometry mirrors across yaw", () => {
+  const overrides = {
+    yaw: 0.64,
+    pitch: -0.07,
+    showClothing: true,
+    clothingCollarHeight: 24,
+    clothingCollarOpeningWidth: 0.6,
+    clothingCollarOpeningDepth: 30,
+    showBreastplate: true,
+    breastplateNeckClearance: 16,
+    breastplateNeckDepth: 36
+  };
+  const positive = solve(overrides);
+  const negative = solve({ ...overrides, yaw: -overrides.yaw });
+
+  for (const [positiveGarment, negativeGarment] of [
+    [positive.body.clothing, negative.body.clothing],
+    [positive.armor.breastplate, negative.armor.breastplate]
+  ]) {
+    const positivePoints = positiveGarment.shapes.flatMap(shape => shape.points);
+    const negativePoints = negativeGarment.shapes.flatMap(shape => shape.points);
+
+    assert.equal(positivePoints.length, negativePoints.length);
+
+    for (const point of positivePoints) {
+      assert.ok(
+        negativePoints.some(candidate => pointsEqual(candidate, { x: 500 - point.x, y: point.y })),
+        `mirrored garment should contain ${500 - point.x},${point.y}`
+      );
+    }
+
+    assert.equal(positiveGarment.neckline.length, negativeGarment.neckline.length);
+    for (const point of positiveGarment.neckline) {
+      assert.ok(
+        negativeGarment.neckline.some(candidate => pointsEqual(candidate, { x: 500 - point.x, y: point.y })),
+        `mirrored neckline should contain ${500 - point.x},${point.y}`
+      );
+    }
+  }
+});
+
+test("garment toggles and SVG ordering preserve armor part independence", () => {
+  const masterOff = solve({ showArmor: false, showBreastplate: true, showPauldrons: true });
+  const plateOnly = solve({ showArmor: true, showBreastplate: true, showPauldrons: false });
+  const layered = solve({
+    showClothing: true,
+    clothingCollarOpeningDepth: 24,
+    showArmor: true,
+    showBreastplate: true,
+    showPauldrons: true,
+    showGuides: true
+  });
+  const svg = renderFaceSvg(layered);
+
+  assert.equal(masterOff.armor.breastplate, null);
+  assert.equal(masterOff.armor.pauldronLeft, null);
+  assert.ok(plateOnly.armor.breastplate);
+  assert.equal(plateOnly.armor.pauldronLeft, null);
+  assert.equal(plateOnly.armor.pauldronRight, null);
+  assert.ok(svg.includes('id="clothing-cutout-mask"'));
+  assert.ok(svg.includes('id="breastplate-cutout-mask"'));
+  assert.ok(svg.includes('class="clothing-shell clothing-0"'));
+  assert.ok(svg.includes('class="breastplate-shell breastplate-0"'));
+  assert.match(svg.match(/class="clothing-shell clothing-0"[\s\S]*?\/>/)?.[0] ?? "", /stroke-width="4"/);
+  assert.match(svg.match(/class="breastplate-shell breastplate-0"[\s\S]*?\/>/)?.[0] ?? "", /stroke-width="4"/);
+  assert.ok(svg.indexOf('class="clavicle-left"') < svg.indexOf('class="clothing-layer"'));
+  assert.ok(svg.indexOf('class="clothing-layer"') < svg.indexOf('class="breastplate-layer"'));
+  assert.ok(svg.indexOf('class="breastplate-layer"') < svg.indexOf('stroke-dasharray="7 5"'));
+});
+
+test("garment source ignores separate-ribcage display mode", () => {
+  const mergedRig = solve({ ...ATTACHED_BODY_PARAMS, showClothing: true, showBreastplate: true });
+  const merged = mergedRig.body;
+  const separateRig = solve({
+    ...ATTACHED_BODY_PARAMS,
+    ribCageSeparate: true,
+    showClothing: true,
+    showBreastplate: true
+  });
+  const separate = separateRig.body;
+
+  assert.deepEqual(merged.clothing.shapes, separate.clothing.shapes);
+  assert.deepEqual(mergedRig.armor.breastplate.shapes, separateRig.armor.breastplate.shapes);
+  assertValidPolygon(separateRig.armor.breastplate.shapes[0].points, "separate-mode breastplate");
+});
+
+test("offset cycles merge only when expansion makes them overlap", () => {
+  const detached = solve({
+    showClothing: true,
+    clothingOffset: 0,
+    torsoLength: 20,
+    ribCageY: 0,
+    ribCageHeight: 30
+  }).body.clothing;
+  const touching = solve({
+    showClothing: true,
+    clothingOffset: 12,
+    torsoLength: 20,
+    ribCageY: 0,
+    ribCageHeight: 30
+  }).body.clothing;
+  const farApart = solve({
+    showClothing: true,
+    clothingOffset: 12,
+    torsoLength: 20,
+    ribCageY: 100,
+    ribCageHeight: 30
+  }).body.clothing;
+
+  assert.equal(detached.shapes.length, 2);
+  assert.equal(touching.shapes.length, 1, "overlapping offsets should reunify automatically");
+  assert.equal(farApart.shapes.length, 2, "disjoint cycles should not gain connector geometry");
+  farApart.shapes.forEach((shape, index) => assertValidPolygon(shape.points, `disjoint garment ${index}`));
+});
+
+test("garment geometry remains finite and simple across pose and control extremes", () => {
+  for (const yaw of [-1, 0, 1]) {
+    for (const pitch of [-0.5, 0.5]) {
+      for (const clothingOffset of [0, 12]) {
+        for (const breastplateOffset of [0, 24]) {
+          const rig = solve({
+            yaw,
+            pitch,
+            showClothing: true,
+            clothingOffset,
+            clothingCollarHeight: 80,
+            clothingCollarOpeningWidth: 1,
+            clothingCollarOpeningDepth: 100,
+            showBreastplate: true,
+            breastplateOffset,
+            breastplateNeckClearance: 40,
+            breastplateNeckDepth: 100
+          });
+          const garments = [rig.body.clothing, rig.armor.breastplate];
+
+          for (const [garmentIndex, garment] of garments.entries()) {
+            for (const [shapeIndex, shape] of garment.shapes.entries()) {
+              assertValidPolygon(shape.points, `garment ${garmentIndex}:${shapeIndex} at ${yaw},${pitch}`);
+            }
+
+            for (const point of [...garment.cutout, ...garment.neckline]) {
+              assert.ok(Number.isFinite(point.x));
+              assert.ok(Number.isFinite(point.y));
             }
           }
         }

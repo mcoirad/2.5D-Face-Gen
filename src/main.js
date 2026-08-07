@@ -92,6 +92,18 @@ const controlGroups = [
     open: false
   },
   {
+    title: "Clothing",
+    keys: [
+      "showClothing",
+      "clothingColor",
+      "clothingOffset",
+      "clothingCollarHeight",
+      "clothingCollarOpeningWidth",
+      "clothingCollarOpeningDepth"
+    ],
+    open: false
+  },
+  {
     title: "Chest Landmarks",
     keys: [
       "showClavicles",
@@ -118,7 +130,18 @@ const controlGroups = [
   },
   {
     title: "Armor",
-    keys: ["showArmor", "armorColor", "pauldronPosition", "pauldronYOffset", "pauldronCurve"],
+    keys: [
+      "showArmor",
+      "armorColor",
+      "showPauldrons",
+      "showBreastplate",
+      "breastplateOffset",
+      "breastplateNeckClearance",
+      "breastplateNeckDepth",
+      "pauldronPosition",
+      "pauldronYOffset",
+      "pauldronCurve"
+    ],
     open: false
   },
   {

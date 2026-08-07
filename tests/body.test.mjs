@@ -217,9 +217,37 @@ test("clavicle lines connect corresponding anchors with adjustable vertical bow"
   }
 });
 
+test("clavicle length shortens from the shoulder side while preserving medial attachment", () => {
+  const full = solve({ clavicleLength: 1, clavicleCurve: 20 }).body;
+  const half = solve({ clavicleLength: 0.5, clavicleCurve: 20 }).body;
+  const zero = solve({ clavicleLength: 0, clavicleCurve: 20 }).body;
+
+  for (const [index, side] of ["left", "right"].entries()) {
+    const medialKey = `clavicleMedial${side[0].toUpperCase()}${side.slice(1)}`;
+    const lateralKey = `clavicle${side[0].toUpperCase()}${side.slice(1)}`;
+    const fullLine = full.clavicleLines[index];
+    const halfLine = half.clavicleLines[index];
+    const zeroLine = zero.clavicleLines[index];
+    const expectedHalfStart = {
+      x: (full.landmarks[lateralKey].x + full.landmarks[medialKey].x) / 2,
+      y: (full.landmarks[lateralKey].y + full.landmarks[medialKey].y) / 2
+    };
+
+    assert.equal(fullLine.start, full.landmarks[lateralKey]);
+    assert.equal(fullLine.end, full.landmarks[medialKey]);
+    assertPointNear(halfLine.start, expectedHalfStart, `${side} half-length start`);
+    assertPointNear(halfLine.end, half.landmarks[medialKey], `${side} fixed half-length medial end`);
+    assertPointNear(zeroLine.start, zero.landmarks[medialKey], `${side} zero-length start`);
+    assertPointNear(zeroLine.end, zero.landmarks[medialKey], `${side} zero-length end`);
+    assert.ok(Math.abs(halfLine.control.y - (halfLine.start.y + halfLine.end.y) / 2 - 10) <= EPSILON);
+    assertPointNear(zeroLine.control, zero.landmarks[medialKey], `${side} zero-length control`);
+  }
+});
+
 test("clavicle visibility toggle hides paths without removing medial guide landmarks", () => {
   assert.equal(defaultParams.showClavicles, true);
   assert.equal(defaultParams.clavicleMedialWidth, 20);
+  assert.equal(defaultParams.clavicleLength, 1);
   assert.equal(defaultParams.clavicleCurve, 0);
 
   const visible = solve({ showClavicles: true, showGuides: true });
@@ -261,28 +289,31 @@ test("clavicle and central chest geometry stays finite across control extremes",
   for (const yaw of [-1, 0, 1]) {
     for (const pitch of [-0.5, 0, 0.5]) {
       for (const clavicleMedialWidth of [0, 50]) {
-        for (const clavicleCurve of [-30, 30]) {
-          for (const sternalNotchZ of [0, 60]) {
-            for (const xiphoidZ of [0, 60]) {
-              const body = solve({
-                yaw,
-                pitch,
-                clavicleMedialWidth,
-                clavicleCurve,
-                sternalNotchZ,
-                xiphoidZ
-              }).body;
-              const geometry = [
-                body.landmarks.clavicleMedialLeft,
-                body.landmarks.clavicleMedialRight,
-                body.landmarks.sternalNotch,
-                body.landmarks.xiphoid,
-                ...body.clavicleLines.flatMap(line => [line.start, line.control, line.end])
-              ];
+        for (const clavicleLength of [0, 1]) {
+          for (const clavicleCurve of [-30, 30]) {
+            for (const sternalNotchZ of [0, 60]) {
+              for (const xiphoidZ of [0, 60]) {
+                const body = solve({
+                  yaw,
+                  pitch,
+                  clavicleMedialWidth,
+                  clavicleLength,
+                  clavicleCurve,
+                  sternalNotchZ,
+                  xiphoidZ
+                }).body;
+                const geometry = [
+                  body.landmarks.clavicleMedialLeft,
+                  body.landmarks.clavicleMedialRight,
+                  body.landmarks.sternalNotch,
+                  body.landmarks.xiphoid,
+                  ...body.clavicleLines.flatMap(line => [line.start, line.control, line.end])
+                ];
 
-              for (const point of geometry) {
-                assert.ok(Number.isFinite(point.x));
-                assert.ok(Number.isFinite(point.y));
+                for (const point of geometry) {
+                  assert.ok(Number.isFinite(point.x));
+                  assert.ok(Number.isFinite(point.y));
+                }
               }
             }
           }

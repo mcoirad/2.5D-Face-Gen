@@ -2275,15 +2275,27 @@ function solveBody(params, pose, structure) {
     sternalNotchY,
     params.sternalNotchZ
   );
-  const makeClavicleLine = (side, start, end) => ({
-    side,
-    start,
-    end,
-    control: {
-      x: (start.x + end.x) / 2,
-      y: (start.y + end.y) / 2 + params.clavicleCurve
-    }
-  });
+  const clavicleLength = clamp(params.clavicleLength ?? 1, 0, 1);
+  const makeClavicleLine = (side, outer, end) => {
+    const start = clavicleLength === 1
+      ? outer
+      : clavicleLength === 0
+        ? end
+        : {
+            x: lerp(end.x, outer.x, clavicleLength),
+            y: lerp(end.y, outer.y, clavicleLength)
+          };
+
+    return {
+      side,
+      start,
+      end,
+      control: {
+        x: (start.x + end.x) / 2,
+        y: (start.y + end.y) / 2 + params.clavicleCurve * clavicleLength
+      }
+    };
+  };
   const clavicleLines = params.showClavicles
     ? [
         makeClavicleLine("left", clavicleLeft, clavicleMedialLeft),

@@ -99,6 +99,7 @@ const controlGroups = [
       "clavicleYDrop",
       "clavicleRadiusOffset",
       "clavicleMedialWidth",
+      "clavicleLength",
       "clavicleCurve",
       "axillaAngleOffset",
       "axillaYDrop",

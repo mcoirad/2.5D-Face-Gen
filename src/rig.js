@@ -2627,6 +2627,8 @@ function resolveGarmentCutouts(cutouts) {
   return valid.length ? mergePolygonCycles(valid) : [];
 }
 
+const CLOTHING_V_EDGE_SAMPLES = 8;
+
 function solveClothing(params, garmentSource) {
   if (!params.showClothing || !garmentSource?.polygons.length) {
     return null;
@@ -2672,37 +2674,84 @@ function solveClothing(params, garmentSource) {
   const bounds = polygonBounds(polygons);
   const openingWidth = clamp(params.clothingCollarOpeningWidth ?? 0.4, 0, 1);
   const requestedDepth = Math.max(0, params.clothingCollarOpeningDepth ?? 0);
-  const collarMidpoint = garmentSource.projectTorsoPoint(
+  const vTipDepth = clamp(params.clothingVTipDepth ?? 0, 0, 100);
+  const torsoSurfaceZ = y => {
+    const surfaceSpan = garmentSource.xiphoidY - garmentSource.sternalNotchY;
+    const amount = surfaceSpan > POLYGON_UNION_EPSILON
+      ? clamp((y - garmentSource.sternalNotchY) / surfaceSpan, 0, 1)
+      : 0;
+
+    return lerp(garmentSource.frontZ, garmentSource.xiphoidZ, amount);
+  };
+  const projectTip = depth => garmentSource.projectTorsoPoint(
     0,
-    collarModelY,
-    garmentSource.frontZ
+    collarModelY + depth,
+    torsoSurfaceZ(collarModelY + depth) + vTipDepth
   );
-  const projectedDepthScale = Math.max(Math.cos(params.pitch), POLYGON_UNION_EPSILON);
-  const effectiveDepth = Math.min(
-    requestedDepth,
-    Math.max(0, (bounds.maxY - collarMidpoint.y - 1) / projectedDepthScale)
-  );
+  const garmentBottomY = bounds.maxY - 1;
+  let effectiveDepth = requestedDepth;
+
+  if (projectTip(effectiveDepth).y > garmentBottomY) {
+    let lowerDepth = 0;
+    let upperDepth = effectiveDepth;
+
+    for (let iteration = 0; iteration < 32; iteration += 1) {
+      const candidateDepth = (lowerDepth + upperDepth) / 2;
+
+      if (projectTip(candidateDepth).y <= garmentBottomY) {
+        lowerDepth = candidateDepth;
+      } else {
+        upperDepth = candidateDepth;
+      }
+    }
+
+    effectiveDepth = lowerDepth;
+  }
   const maskTop = bounds.minY - 100;
   let neckline = [collarTopLeft, collarTopRight];
+  let necklinePath = neckline;
 
   if (openingWidth > POLYGON_UNION_EPSILON && effectiveDepth > POLYGON_UNION_EPSILON) {
     const leftAmount = (1 - openingWidth) / 2;
     const rightAmount = 1 - leftAmount;
-    const leftLip = garmentSource.projectTorsoPoint(
-      lerp(-collarHalfWidth, collarHalfWidth, leftAmount),
+    const leftLipX = lerp(-collarHalfWidth, collarHalfWidth, leftAmount);
+    const rightLipX = lerp(-collarHalfWidth, collarHalfWidth, rightAmount);
+    const sampleEdge = (fromX, fromY, toX, toY, tipAtEnd) => {
+      const points = [];
+
+      for (let sample = 0; sample <= CLOTHING_V_EDGE_SAMPLES; sample += 1) {
+        const amount = sample / CLOTHING_V_EDGE_SAMPLES;
+        const y = lerp(fromY, toY, amount);
+        const tipAmount = tipAtEnd
+          ? smoothstep(0, 1, amount)
+          : smoothstep(0, 1, 1 - amount);
+
+        points.push(garmentSource.projectTorsoPoint(
+          lerp(fromX, toX, amount),
+          y,
+          torsoSurfaceZ(y) + vTipDepth * tipAmount
+        ));
+      }
+
+      return points;
+    };
+    const leftEdge = sampleEdge(
+      leftLipX,
       collarModelY,
-      garmentSource.frontZ
-    );
-    const rightLip = garmentSource.projectTorsoPoint(
-      lerp(-collarHalfWidth, collarHalfWidth, rightAmount),
-      collarModelY,
-      garmentSource.frontZ
-    );
-    const tip = garmentSource.projectTorsoPoint(
       0,
       collarModelY + effectiveDepth,
-      garmentSource.frontZ
+      true
     );
+    const rightEdge = sampleEdge(
+      0,
+      collarModelY + effectiveDepth,
+      rightLipX,
+      collarModelY,
+      false
+    );
+    const leftLip = leftEdge[0];
+    const tip = leftEdge.at(-1);
+    const rightLip = rightEdge.at(-1);
     neckline = [
       collarTopLeft,
       leftLip,
@@ -2710,8 +2759,14 @@ function solveClothing(params, garmentSource) {
       rightLip,
       collarTopRight
     ];
+    necklinePath = [
+      collarTopLeft,
+      ...leftEdge,
+      ...rightEdge.slice(1),
+      collarTopRight
+    ];
   }
-  const projectedCutout = makeTopOpenCutout(neckline, maskTop);
+  const projectedCutout = makeTopOpenCutout(necklinePath, maskTop);
   const fallbackCollarLeft = {
     x: lerp(garmentSource.neckBottomLeft.x, garmentSource.neckTopLeft.x, collarAmount),
     y: lerp(garmentSource.neckBottomLeft.y, garmentSource.neckTopLeft.y, collarAmount)
@@ -2736,6 +2791,9 @@ function solveClothing(params, garmentSource) {
     cutout,
     cutouts,
     neckline,
+    necklinePath,
+    openingTip: neckline.length === 5 ? neckline[2] : null,
+    vTipDepth,
     collarTopLeft,
     collarTopRight,
     collarHeight
@@ -3097,6 +3155,9 @@ function solveBody(params, pose, structure) {
     ribCageGuide,
     projectTorsoPoint,
     frontZ: params.sternalNotchZ,
+    sternalNotchY,
+    xiphoidY,
+    xiphoidZ: params.xiphoidZ,
     neckTopY: topY,
     neckBottomY: bottomY,
     neckTopWidth: params.neckTopWidth,

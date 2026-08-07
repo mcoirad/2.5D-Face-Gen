@@ -99,7 +99,8 @@ const controlGroups = [
       "clothingOffset",
       "clothingCollarHeight",
       "clothingCollarOpeningWidth",
-      "clothingCollarOpeningDepth"
+      "clothingCollarOpeningDepth",
+      "clothingVTipDepth"
     ],
     open: false
   },

@@ -371,6 +371,7 @@ test("clothing and breastplate defaults preserve existing faces", () => {
   assert.equal(defaultParams.clothingCollarHeight, 0);
   assert.equal(defaultParams.clothingCollarOpeningWidth, 0.4);
   assert.equal(defaultParams.clothingCollarOpeningDepth, 0);
+  assert.equal(defaultParams.clothingVTipDepth, 0);
   assert.equal(defaultParams.showArmor, true);
   assert.equal(defaultParams.showPauldrons, true);
   assert.equal(defaultParams.showBreastplate, false);
@@ -698,6 +699,83 @@ test("garment opening depth is projected from model Y and mirrors with yaw", () 
   }
 });
 
+test("V tip depth rotates the bottom farther than the fixed collar lips", () => {
+  const overrides = {
+    yaw: 0.8,
+    pitch: 0,
+    sternalNotchZ: 20,
+    xiphoidZ: 20,
+    showClothing: true,
+    clothingCollarHeight: 30,
+    clothingCollarOpeningWidth: 0.8,
+    clothingCollarOpeningDepth: 60
+  };
+  const flat = solve({ ...overrides, clothingVTipDepth: 0 }).body.clothing;
+  const medium = solve({ ...overrides, clothingVTipDepth: 40 }).body.clothing;
+  const deep = solve({ ...overrides, clothingVTipDepth: 100 }).body.clothing;
+  const expectedExtraShift = 100 * Math.sin(overrides.yaw * Math.PI / 2);
+
+  assertPointNear(medium.neckline[1], flat.neckline[1], "left lip should remain fixed");
+  assertPointNear(medium.neckline[3], flat.neckline[3], "right lip should remain fixed");
+  assert.ok(medium.openingTip.x < flat.openingTip.x);
+  assert.ok(deep.openingTip.x < medium.openingTip.x);
+  assert.ok(Math.abs(flat.openingTip.x - deep.openingTip.x - expectedExtraShift) <= EPSILON);
+  assert.equal(deep.necklinePath.length, 2 * 8 + 3);
+
+  for (const cutout of deep.cutouts) {
+    assertValidPolygon(cutout, "depth-graded V cutout");
+  }
+});
+
+test("V follows the sternal-to-xiphoid chest surface before applying tip depth", () => {
+  const overrides = {
+    yaw: 0.7,
+    pitch: 0,
+    sternalNotchZ: 10,
+    showClothing: true,
+    clothingCollarHeight: 0,
+    clothingCollarOpeningWidth: 0.7,
+    clothingCollarOpeningDepth: 80,
+    clothingVTipDepth: 0
+  };
+  const flatChest = solve({ ...overrides, xiphoidZ: 10 }).body.clothing;
+  const projectedChest = solve({ ...overrides, xiphoidZ: 50 }).body.clothing;
+
+  assertPointNear(projectedChest.neckline[1], flatChest.neckline[1], "surface depth should not move left lip");
+  assertPointNear(projectedChest.neckline[3], flatChest.neckline[3], "surface depth should not move right lip");
+  assert.ok(projectedChest.openingTip.x < flatChest.openingTip.x);
+});
+
+test("deep V can break through the garment edge and remains mirrored", () => {
+  const overrides = {
+    yaw: 0.9,
+    pitch: 0,
+    sternalNotchZ: 20,
+    xiphoidZ: 26,
+    showClothing: true,
+    clothingOffset: 3,
+    clothingCollarHeight: 30,
+    clothingCollarOpeningWidth: 0.8,
+    clothingCollarOpeningDepth: 60,
+    clothingVTipDepth: 100
+  };
+  const positive = solve(overrides);
+  const negative = solve({ ...overrides, yaw: -overrides.yaw });
+  const positiveClothing = positive.body.clothing;
+  const negativeClothing = negative.body.clothing;
+  const positiveBounds = boundsForShapes(positiveClothing.shapes);
+  const negativeBounds = boundsForShapes(negativeClothing.shapes);
+
+  assert.ok(positiveClothing.openingTip.x < positiveBounds.minX, "positive yaw should carry the tip through the left edge");
+  assert.ok(negativeClothing.openingTip.x > negativeBounds.maxX, "negative yaw should carry the tip through the right edge");
+  assert.ok(Math.abs(negativeClothing.openingTip.x - (500 - positiveClothing.openingTip.x)) <= EPSILON);
+  assert.ok(Math.abs(negativeClothing.openingTip.y - positiveClothing.openingTip.y) <= EPSILON);
+
+  for (const clothing of [positiveClothing, negativeClothing]) {
+    clothing.cutouts.forEach((cutout, index) => assertValidPolygon(cutout, `edge-breaking cutout ${index}`));
+  }
+});
+
 test("profile garment openings collapse safely while preserving neck clearance", () => {
   for (const yaw of [-1, 1]) {
     const rig = solve({
@@ -843,33 +921,36 @@ test("garment geometry remains finite and simple across pose and control extreme
     for (const pitch of [-0.5, 0.5]) {
       for (const clothingOffset of [0, 12]) {
         for (const breastplateOffset of [0, 24]) {
-          const rig = solve({
-            yaw,
-            pitch,
-            showClothing: true,
-            clothingOffset,
-            clothingCollarHeight: 80,
-            clothingCollarOpeningWidth: 1,
-            clothingCollarOpeningDepth: 100,
-            showBreastplate: true,
-            breastplateOffset,
-            breastplateNeckClearance: 40,
-            breastplateNeckDepth: 100
-          });
-          const garments = [rig.body.clothing, rig.armor.breastplate];
+          for (const clothingVTipDepth of [0, 100]) {
+            const rig = solve({
+              yaw,
+              pitch,
+              showClothing: true,
+              clothingOffset,
+              clothingCollarHeight: 80,
+              clothingCollarOpeningWidth: 1,
+              clothingCollarOpeningDepth: 100,
+              clothingVTipDepth,
+              showBreastplate: true,
+              breastplateOffset,
+              breastplateNeckClearance: 40,
+              breastplateNeckDepth: 100
+            });
+            const garments = [rig.body.clothing, rig.armor.breastplate];
 
-          for (const [garmentIndex, garment] of garments.entries()) {
-            for (const [shapeIndex, shape] of garment.shapes.entries()) {
-              assertValidPolygon(shape.points, `garment ${garmentIndex}:${shapeIndex} at ${yaw},${pitch}`);
-            }
+            for (const [garmentIndex, garment] of garments.entries()) {
+              for (const [shapeIndex, shape] of garment.shapes.entries()) {
+                assertValidPolygon(shape.points, `garment ${garmentIndex}:${shapeIndex} at ${yaw},${pitch}`);
+              }
 
-            for (const [cutoutIndex, cutout] of garment.cutouts.entries()) {
-              assertValidPolygon(cutout, `garment cutout ${garmentIndex}:${cutoutIndex} at ${yaw},${pitch}`);
-            }
+              for (const [cutoutIndex, cutout] of garment.cutouts.entries()) {
+                assertValidPolygon(cutout, `garment cutout ${garmentIndex}:${cutoutIndex} at ${yaw},${pitch}`);
+              }
 
-            for (const point of [...garment.cutout, ...garment.neckline]) {
-              assert.ok(Number.isFinite(point.x));
-              assert.ok(Number.isFinite(point.y));
+              for (const point of [...garment.cutout, ...garment.neckline]) {
+                assert.ok(Number.isFinite(point.x));
+                assert.ok(Number.isFinite(point.y));
+              }
             }
           }
         }

@@ -50,7 +50,7 @@ export function renderFaceSvg(rig) {
 function renderRemoveStrokesStyle() {
   return `
     <style>
-      * {
+      *:not(.preserve-material-stroke) {
         stroke: none !important;
       }
     </style>
@@ -119,7 +119,28 @@ function renderGarmentLayer(garment, className) {
       stroke-linejoin="round"
     />
   `).join("");
-  const neckline = hasCutout
+  const gildedEdge = hasCutout && garment.gildedEdge
+    ? `
+      <g
+        class="${className}-gilded-edge-layer"
+        mask="url(#${maskId})"
+        clip-path="url(#${clipId})"
+      >
+        ${cutouts.map(points => `
+          <path
+            class="${className}-gilded-edge preserve-material-stroke"
+            d="${renderPointPath(points)} Z"
+            fill="none"
+            stroke="${garment.gildedEdge.color}"
+            stroke-width="${garment.gildedEdge.width * 2}"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        `).join("")}
+      </g>
+    `
+    : "";
+  const neckline = hasCutout && !garment.gildedEdge
     ? `
       <g clip-path="url(#${clipId})">
         ${cutouts.map(points => `
@@ -142,7 +163,7 @@ function renderGarmentLayer(garment, className) {
     <g class="${className}-layer"${maskAttribute}>
       ${shapes}
     </g>
-    ${neckline}
+    ${gildedEdge || neckline}
   `;
 }
 

@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { isPointInPolygon, lerp } from "../src/geometry.js";
-import { defaultParams } from "../src/params.js";
+import {
+  colorConfig,
+  defaultParams,
+  sliderConfig,
+  toggleConfig
+} from "../src/params.js";
 import {
   defaultFeatureLandmarks,
   defaultOutlineLandmarks,
@@ -372,6 +377,12 @@ test("clothing and breastplate defaults preserve existing faces", () => {
   assert.equal(defaultParams.clothingCollarOpeningWidth, 0.4);
   assert.equal(defaultParams.clothingCollarOpeningDepth, 0);
   assert.equal(defaultParams.clothingVTipDepth, 0);
+  assert.equal(defaultParams.showClothingGildedEdge, false);
+  assert.equal(defaultParams.clothingGildedEdgeColor, "#d4af37");
+  assert.equal(defaultParams.clothingGildedEdgeWidth, 4);
+  assert.deepEqual(sliderConfig.clothingGildedEdgeWidth, [1, 16, 1]);
+  assert.equal(colorConfig.clothingGildedEdgeColor, true);
+  assert.equal(toggleConfig.showClothingGildedEdge, true);
   assert.equal(defaultParams.showArmor, true);
   assert.equal(defaultParams.showPauldrons, true);
   assert.equal(defaultParams.showBreastplate, false);
@@ -840,6 +851,135 @@ test("SVG subtracts and strokes the same resolved garment cutout cycles", () => 
       assert.ok(svg.split(path).length - 1 >= 2, `${className} cutout should be used by its mask and stroke`);
     }
   }
+});
+
+test("gilded clothing edge replaces the black neckline with a one-sided material band", () => {
+  const rig = solve({
+    yaw: 0.65,
+    pitch: -0.2,
+    showClothing: true,
+    clothingCollarHeight: 30,
+    clothingCollarOpeningWidth: 0.8,
+    clothingCollarOpeningDepth: 45,
+    clothingVTipDepth: 60,
+    showClothingGildedEdge: true,
+    clothingGildedEdgeColor: "#f0c040",
+    clothingGildedEdgeWidth: 7,
+    showBreastplate: true
+  });
+  const clothing = rig.body.clothing;
+  const svg = renderFaceSvg(rig);
+  const gildedPath = svg.match(/class="clothing-gilded-edge preserve-material-stroke"[\s\S]*?\/>/)?.[0] ?? "";
+
+  assert.deepEqual(clothing.gildedEdge, { color: "#f0c040", width: 7 });
+  assert.ok(svg.includes('class="clothing-gilded-edge-layer"'));
+  assert.match(svg.match(/class="clothing-gilded-edge-layer"[\s\S]*?>/)?.[0] ?? "", /mask="url\(#clothing-cutout-mask\)"/);
+  assert.match(svg.match(/class="clothing-gilded-edge-layer"[\s\S]*?>/)?.[0] ?? "", /clip-path="url\(#clothing-shell-clip\)"/);
+  assert.match(gildedPath, /stroke="#f0c040"/);
+  assert.match(gildedPath, /stroke-width="14"/);
+  assert.equal(svg.includes('class="clothing-neckline"'), false);
+  assert.ok(svg.indexOf('class="clothing-shell clothing-0"') < svg.indexOf('class="clothing-gilded-edge-layer"'));
+  assert.ok(svg.indexOf('class="clothing-gilded-edge-layer"') < svg.indexOf('class="breastplate-layer"'));
+  assert.match(svg.match(/class="clothing-shell clothing-0"[\s\S]*?\/>/)?.[0] ?? "", /stroke="black"/);
+  assert.ok(svg.includes('class="breastplate-neckline"'), "breastplate should retain its black neckline");
+
+  for (const cutout of clothing.cutouts) {
+    const path = `d="${renderPointPathForTest(cutout)} Z"`;
+    assert.ok(svg.split(path).length - 1 >= 2, "resolved cutout should drive both mask and gilded band");
+  }
+});
+
+test("gilded edge styling does not alter clothing geometry", () => {
+  const overrides = {
+    yaw: 0.72,
+    pitch: 0.18,
+    showClothing: true,
+    clothingCollarHeight: 26,
+    clothingCollarOpeningWidth: 0.7,
+    clothingCollarOpeningDepth: 52,
+    clothingVTipDepth: 75
+  };
+  const plain = solve(overrides).body.clothing;
+  const gilded = solve({
+    ...overrides,
+    showClothingGildedEdge: true,
+    clothingGildedEdgeColor: "#ffffff",
+    clothingGildedEdgeWidth: 16
+  }).body.clothing;
+
+  assert.deepEqual(gilded.shapes, plain.shapes);
+  assert.deepEqual(gilded.cutout, plain.cutout);
+  assert.deepEqual(gilded.cutouts, plain.cutouts);
+  assert.deepEqual(gilded.neckline, plain.neckline);
+  assert.deepEqual(gilded.necklinePath, plain.necklinePath);
+  assert.equal(plain.gildedEdge, null);
+  assert.deepEqual(gilded.gildedEdge, { color: "#ffffff", width: 16 });
+});
+
+test("gilded edge follows collar-only, profile, and side-breakthrough cutouts", () => {
+  const scenarios = [
+    {
+      yaw: 0,
+      clothingCollarHeight: 30,
+      clothingCollarOpeningDepth: 0,
+      clothingVTipDepth: 0
+    },
+    {
+      yaw: 1,
+      pitch: 0.4,
+      clothingCollarHeight: 80,
+      clothingCollarOpeningDepth: 100,
+      clothingVTipDepth: 100
+    },
+    {
+      yaw: 0.9,
+      clothingCollarHeight: 30,
+      clothingCollarOpeningWidth: 0.8,
+      clothingCollarOpeningDepth: 60,
+      clothingVTipDepth: 100
+    },
+    {
+      yaw: 0.4,
+      torsoLength: 20,
+      ribCageY: 100,
+      ribCageHeight: 30,
+      clothingCollarHeight: 20,
+      clothingCollarOpeningDepth: 25,
+      clothingVTipDepth: 40
+    }
+  ];
+
+  for (const scenario of scenarios) {
+    const rig = solve({
+      showClothing: true,
+      showClothingGildedEdge: true,
+      ...scenario
+    });
+    const clothing = rig.body.clothing;
+    const svg = renderFaceSvg(rig);
+    const pathCount = svg.match(/class="clothing-gilded-edge preserve-material-stroke"/g)?.length ?? 0;
+
+    assert.equal(pathCount, clothing.cutouts.length);
+    if (scenario.ribCageY === 100) {
+      assert.equal(clothing.shapes.length, 2, "disjoint garment cycles should share the resolved neckline trim");
+    }
+    clothing.cutouts.forEach((cutout, index) => assertValidPolygon(cutout, `gilded scenario cutout ${index}`));
+  }
+});
+
+test("remove-strokes mode preserves gilding while suppressing ordinary strokes", () => {
+  const rig = solve({
+    removeStrokes: true,
+    showClothing: true,
+    showClothingGildedEdge: true,
+    clothingCollarOpeningDepth: 30
+  });
+  const svg = renderFaceSvg(rig);
+
+  assert.ok(svg.includes('*:not(.preserve-material-stroke)'));
+  assert.ok(svg.includes('class="clothing-gilded-edge preserve-material-stroke"'));
+  assert.ok(svg.includes('stroke="#d4af37"'));
+  assert.ok(svg.includes('class="clothing-shell clothing-0"'));
 });
 
 test("garment toggles and SVG ordering preserve armor part independence", () => {

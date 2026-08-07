@@ -2794,6 +2794,12 @@ function solveClothing(params, garmentSource) {
     necklinePath,
     openingTip: neckline.length === 5 ? neckline[2] : null,
     vTipDepth,
+    gildedEdge: params.showClothingGildedEdge
+      ? {
+          color: params.clothingGildedEdgeColor ?? "#d4af37",
+          width: clamp(params.clothingGildedEdgeWidth ?? 4, 1, 16)
+        }
+      : null,
     collarTopLeft,
     collarTopRight,
     collarHeight

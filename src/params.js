@@ -41,6 +41,9 @@ export const defaultParams = {
   clothingCollarOpeningWidth: 0.4,
   clothingCollarOpeningDepth: 0,
   clothingVTipDepth: 0,
+  showClothingGildedEdge: false,
+  clothingGildedEdgeColor: "#d4af37",
+  clothingGildedEdgeWidth: 4,
   showClavicles: true,
   clavicleAngleOffset: 0.15,
   clavicleYDrop: 6,
@@ -280,6 +283,7 @@ export const sliderConfig = {
   clothingCollarOpeningWidth: [0, 1, 0.01],
   clothingCollarOpeningDepth: [0, 100, 1],
   clothingVTipDepth: [0, 100, 1],
+  clothingGildedEdgeWidth: [1, 16, 1],
   clavicleAngleOffset: [-0.5, 0.5, 0.01],
   clavicleYDrop: [-20, 40, 1],
   clavicleRadiusOffset: [-20, 20, 1],
@@ -474,6 +478,7 @@ export const colorConfig = {
   mouthCavityColor: true,
   bodyColor: true,
   clothingColor: true,
+  clothingGildedEdgeColor: true,
   armorColor: true,
   skinColor: true
 };
@@ -487,6 +492,7 @@ export const toggleConfig = {
   showBody: true,
   ribCageSeparate: true,
   showClothing: true,
+  showClothingGildedEdge: true,
   showClavicles: true,
   showArmor: true,
   showPauldrons: true,

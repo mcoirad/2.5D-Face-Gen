@@ -100,7 +100,10 @@ const controlGroups = [
       "clothingCollarHeight",
       "clothingCollarOpeningWidth",
       "clothingCollarOpeningDepth",
-      "clothingVTipDepth"
+      "clothingVTipDepth",
+      "showClothingGildedEdge",
+      "clothingGildedEdgeColor",
+      "clothingGildedEdgeWidth"
     ],
     open: false
   },

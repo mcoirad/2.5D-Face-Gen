@@ -87,17 +87,28 @@ function renderGarmentLayer(garment, className) {
   }
 
   const maskId = `${className}-cutout-mask`;
-  const mask = garment.cutout?.length >= 3
+  const clipId = `${className}-shell-clip`;
+  const cutouts = garment.cutouts?.filter(points => points.length >= 3)
+    ?? (garment.cutout?.length >= 3 ? [garment.cutout] : []);
+  const hasCutout = cutouts.length > 0;
+  const cutoutPaths = cutouts.map(points => (
+    `<path d="${renderPointPath(points)} Z" />`
+  )).join("");
+  const clipPaths = garment.shapes.map(shape => (
+    `<path d="${renderPointPath(shape.points)} Z" />`
+  )).join("");
+  const mask = hasCutout
     ? `
       <defs>
         <mask id="${maskId}" maskUnits="userSpaceOnUse" x="-1000" y="-1000" width="2500" height="2500">
           <rect x="-1000" y="-1000" width="2500" height="2500" fill="white" />
-          <path d="${renderPointPath(garment.cutout)} Z" fill="black" />
+          <g fill="black">${cutoutPaths}</g>
         </mask>
+        <clipPath id="${clipId}">${clipPaths}</clipPath>
       </defs>
     `
     : "";
-  const maskAttribute = garment.cutout?.length >= 3 ? ` mask="url(#${maskId})"` : "";
+  const maskAttribute = hasCutout ? ` mask="url(#${maskId})"` : "";
   const shapes = garment.shapes.map(shape => `
     <path
       class="${className}-shell ${shape.id}"
@@ -108,17 +119,21 @@ function renderGarmentLayer(garment, className) {
       stroke-linejoin="round"
     />
   `).join("");
-  const neckline = garment.neckline?.length >= 2
+  const neckline = hasCutout
     ? `
-      <path
-        class="${className}-neckline"
-        d="${renderPointPath(garment.neckline)}"
-        fill="none"
-        stroke="black"
-        stroke-width="4"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
+      <g clip-path="url(#${clipId})">
+        ${cutouts.map(points => `
+          <path
+            class="${className}-neckline"
+            d="${renderPointPath(points)} Z"
+            fill="none"
+            stroke="black"
+            stroke-width="4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        `).join("")}
+      </g>
     `
     : "";
 

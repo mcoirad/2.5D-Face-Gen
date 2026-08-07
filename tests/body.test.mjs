@@ -29,6 +29,30 @@ const ATTACHED_BODY_PARAMS = {
   ribCageTilt: 9,
   ribCageSeparate: false
 };
+const OFFSET_INTERSECTION_BODY_PARAMS = {
+  yaw: -0.04,
+  pitch: -0.02,
+  faceWidth: 180,
+  faceHeight: 165,
+  neckTopWidth: 50,
+  neckBottomWidth: 58,
+  neckLength: 65,
+  neckOverlap: 10,
+  torsoWidth: 161,
+  shoulderRadius: 29,
+  shoulderGap: 21,
+  torsoLength: 90,
+  torsoNarrowing: 0.25,
+  ribCageWidth: 107,
+  ribCageHeight: 196,
+  ribCageY: 30,
+  ribCageTilt: 15,
+  ribCageSeparate: false,
+  showClothing: true,
+  clothingCollarHeight: 9,
+  clothingCollarOpeningWidth: 1,
+  clothingCollarOpeningDepth: 64
+};
 
 function solve(overrides = {}) {
   return solveFaceRig({
@@ -142,6 +166,12 @@ function boundsForShapes(shapes) {
     minY: Math.min(...points.map(point => point.y)),
     maxY: Math.max(...points.map(point => point.y))
   };
+}
+
+function renderPointPathForTest(points) {
+  return points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+    .join(" ");
 }
 
 test("medial clavicle anchors straddle the sternal notch at front view", () => {
@@ -429,6 +459,93 @@ test("polygon offsets keep clothing closer than the default breastplate and use 
   assert.ok(rig.body.clothing.shapes[0].points.length > rig.armor.breastplate.shapes[0].points.length);
 });
 
+test("clothing offset trims collapsed concavity loops instead of reverting to zero", () => {
+  const zero = solve({ ...OFFSET_INTERSECTION_BODY_PARAMS, clothingOffset: 0 }).body.clothing;
+  const zeroPoints = zero.shapes[0].points;
+  let previousBounds = boundsForShapes(zero.shapes);
+
+  for (let clothingOffset = 1; clothingOffset <= 12; clothingOffset += 1) {
+    const clothing = solve({ ...OFFSET_INTERSECTION_BODY_PARAMS, clothingOffset }).body.clothing;
+    const bounds = boundsForShapes(clothing.shapes);
+
+    assert.equal(clothing.shapes.length, 1, `offset ${clothingOffset} should discard local loop cycles`);
+    assertValidPolygon(clothing.shapes[0].points, `resolved clothing offset ${clothingOffset}`);
+    assert.notDeepEqual(clothing.shapes[0].points, zeroPoints, `offset ${clothingOffset} should not fall back to zero`);
+    assert.ok(bounds.minX < previousBounds.minX + EPSILON, `offset ${clothingOffset} minX should expand`);
+    assert.ok(bounds.maxX > previousBounds.maxX - EPSILON, `offset ${clothingOffset} maxX should expand`);
+    assert.ok(bounds.minY < previousBounds.minY + EPSILON, `offset ${clothingOffset} minY should expand`);
+    assert.ok(bounds.maxY > previousBounds.maxY - EPSILON, `offset ${clothingOffset} maxY should expand`);
+    previousBounds = bounds;
+  }
+
+  const resolved = solve({ ...OFFSET_INTERSECTION_BODY_PARAMS, clothingOffset: 9 }).body.clothing;
+  const repeated = solve({ ...OFFSET_INTERSECTION_BODY_PARAMS, clothingOffset: 9 }).body.clothing;
+  const mirrored = solve({
+    ...OFFSET_INTERSECTION_BODY_PARAMS,
+    yaw: -OFFSET_INTERSECTION_BODY_PARAMS.yaw,
+    clothingOffset: 9
+  }).body.clothing;
+
+  assert.deepEqual(resolved.shapes, repeated.shapes, "cleaned point ordering should be deterministic");
+  assert.equal(resolved.shapes[0].points.length, mirrored.shapes[0].points.length);
+  for (const point of resolved.shapes[0].points) {
+    assert.ok(
+      mirrored.shapes[0].points.some(candidate => pointsEqual(candidate, { x: 500 - point.x, y: point.y })),
+      `mirrored cleaned clothing should contain ${500 - point.x},${point.y}`
+    );
+  }
+});
+
+test("mitered breastplate offsets use the same intersection cleanup", () => {
+  const overrides = {
+    yaw: -1,
+    pitch: -0.5,
+    torsoWidth: 100,
+    torsoLength: 90,
+    ribCageWidth: 60,
+    ribCageHeight: 120,
+    ribCageY: 30,
+    shoulderRadius: 29,
+    shoulderGap: 21,
+    neckBottomWidth: 58,
+    showArmor: true,
+    showBreastplate: true,
+    showPauldrons: false
+  };
+  const zero = solve({ ...overrides, breastplateOffset: 0 }).armor.breastplate;
+  const expanded = solve({ ...overrides, breastplateOffset: 24 }).armor.breastplate;
+  const zeroBounds = boundsForShapes(zero.shapes);
+  const expandedBounds = boundsForShapes(expanded.shapes);
+
+  assert.notDeepEqual(expanded.shapes, zero.shapes);
+  expanded.shapes.forEach((shape, index) => assertValidPolygon(shape.points, `resolved breastplate ${index}`));
+  assert.ok(expandedBounds.minX < zeroBounds.minX);
+  assert.ok(expandedBounds.maxX > zeroBounds.maxX);
+  assert.ok(expandedBounds.minY < zeroBounds.minY);
+  assert.ok(expandedBounds.maxY > zeroBounds.maxY);
+});
+
+test("pathological offset geometry retains the final source fallback", () => {
+  const overrides = {
+    yaw: -0.64,
+    pitch: -0.5,
+    torsoWidth: 100,
+    torsoLength: 90,
+    ribCageWidth: 60,
+    ribCageHeight: 196,
+    ribCageY: 40,
+    shoulderRadius: 29,
+    shoulderGap: 21,
+    neckBottomWidth: 58,
+    showClothing: true
+  };
+  const zero = solve({ ...overrides, clothingOffset: 0 }).body.clothing;
+  const pathological = solve({ ...overrides, clothingOffset: 12 }).body.clothing;
+
+  assert.deepEqual(pathological.shapes, zero.shapes);
+  pathological.shapes.forEach((shape, index) => assertValidPolygon(shape.points, `fallback clothing ${index}`));
+});
+
 test("breastplate U opening clears the neck and responds monotonically", () => {
   const shallow = solve({
     yaw: 0,
@@ -498,6 +615,151 @@ test("clothing and breastplate geometry mirrors across yaw", () => {
         negativeGarment.neckline.some(candidate => pointsEqual(candidate, { x: 500 - point.x, y: point.y })),
         `mirrored neckline should contain ${500 - point.x},${point.y}`
       );
+    }
+  }
+});
+
+test("garment openings rotate through the torso projector without visibility thresholds", () => {
+  const overrides = {
+    pitch: 0,
+    sternalNotchZ: 20,
+    showClothing: true,
+    clothingCollarHeight: 30,
+    clothingCollarOpeningWidth: 0.75,
+    clothingCollarOpeningDepth: 40,
+    showBreastplate: true,
+    breastplateNeckClearance: 20,
+    breastplateNeckDepth: 40
+  };
+  const front = solve({ ...overrides, yaw: 0 });
+  const frontVWidth = front.body.clothing.neckline[3].x - front.body.clothing.neckline[1].x;
+  const frontUWidth = front.armor.breastplate.neckline.at(-1).x
+    - front.armor.breastplate.neckline[0].x;
+  let previousVWidth = frontVWidth;
+  let previousUWidth = frontUWidth;
+
+  for (const yaw of [0.25, 0.5, 0.75, 0.9, 0.99]) {
+    const rig = solve({ ...overrides, yaw });
+    const clothing = rig.body.clothing;
+    const breastplate = rig.armor.breastplate;
+    const expectedScale = Math.cos(yaw * Math.PI / 2);
+    const expectedCenterX = 250 - overrides.sternalNotchZ * Math.sin(yaw * Math.PI / 2);
+    const vWidth = clothing.neckline[3].x - clothing.neckline[1].x;
+    const uWidth = breastplate.neckline.at(-1).x - breastplate.neckline[0].x;
+    const vCenterX = (clothing.neckline[3].x + clothing.neckline[1].x) / 2;
+    const uCenterX = (breastplate.neckline.at(-1).x + breastplate.neckline[0].x) / 2;
+
+    assert.ok(Math.abs(vWidth - frontVWidth * expectedScale) <= EPSILON);
+    assert.ok(Math.abs(uWidth - frontUWidth * expectedScale) <= EPSILON);
+    assert.ok(Math.abs(vCenterX - expectedCenterX) <= EPSILON);
+    assert.ok(Math.abs(uCenterX - expectedCenterX) <= EPSILON);
+    assert.ok(vWidth < previousVWidth && vWidth > 0);
+    assert.ok(uWidth < previousUWidth && uWidth > 0);
+    assert.equal(clothing.neckline.length, 5, "V should remain authored through near-profile yaw");
+    assert.equal(breastplate.neckline.length, 17, "U should remain authored through near-profile yaw");
+    previousVWidth = vWidth;
+    previousUWidth = uWidth;
+  }
+});
+
+test("garment opening depth is projected from model Y and mirrors with yaw", () => {
+  const overrides = {
+    yaw: 0.6,
+    pitch: 0.3,
+    showClothing: true,
+    clothingCollarHeight: 24,
+    clothingCollarOpeningWidth: 0.6,
+    clothingCollarOpeningDepth: 20,
+    showBreastplate: true,
+    breastplateNeckClearance: 12,
+    breastplateNeckDepth: 30
+  };
+  const positive = solve(overrides);
+  const negative = solve({ ...overrides, yaw: -overrides.yaw });
+  const clothing = positive.body.clothing;
+  const breastplate = positive.armor.breastplate;
+  const collarBaselineY = (clothing.neckline[0].y + clothing.neckline.at(-1).y) / 2;
+  const uBaselineY = (breastplate.neckline[0].y + breastplate.neckline.at(-1).y) / 2;
+
+  assert.ok(Math.abs(clothing.neckline[2].y - collarBaselineY - 20 * Math.cos(overrides.pitch)) <= EPSILON);
+  assert.ok(Math.abs(breastplate.neckline[8].y - uBaselineY - 30 * Math.cos(overrides.pitch)) <= EPSILON);
+
+  for (const [positiveOpening, negativeOpening] of [
+    [positive.body.clothing.neckline, negative.body.clothing.neckline],
+    [positive.armor.breastplate.neckline, negative.armor.breastplate.neckline]
+  ]) {
+    assert.equal(positiveOpening.length, negativeOpening.length);
+
+    for (let index = 0; index < positiveOpening.length; index += 1) {
+      const mirrored = negativeOpening[negativeOpening.length - 1 - index];
+      assert.ok(Math.abs(mirrored.x - (500 - positiveOpening[index].x)) <= EPSILON);
+      assert.ok(Math.abs(mirrored.y - positiveOpening[index].y) <= EPSILON);
+    }
+  }
+});
+
+test("profile garment openings collapse safely while preserving neck clearance", () => {
+  for (const yaw of [-1, 1]) {
+    const rig = solve({
+      yaw,
+      pitch: 0.4,
+      sternalNotchZ: 60,
+      showClothing: true,
+      clothingCollarHeight: 80,
+      clothingCollarOpeningWidth: 1,
+      clothingCollarOpeningDepth: 100,
+      showBreastplate: true,
+      breastplateNeckClearance: 40,
+      breastplateNeckDepth: 100
+    });
+    const garments = [rig.body.clothing, rig.armor.breastplate];
+
+    for (const garment of garments) {
+      assert.ok(garment.cutouts.length >= 1);
+      garment.cutouts.forEach((points, index) => assertValidPolygon(points, `profile cutout ${yaw}:${index}`));
+
+      for (const point of garment.neckline) {
+        assert.ok(Number.isFinite(point.x));
+        assert.ok(Number.isFinite(point.y));
+      }
+    }
+
+    const neckPoint = {
+      x: (rig.body.neckBottomLeft.x + rig.body.neckBottomRight.x) / 2,
+      y: rig.body.neckBottomLeft.y - 1
+    };
+    assert.ok(
+      rig.armor.breastplate.cutouts.some(points => isPointInPolygon(neckPoint, points)),
+      "persistent profile cutout should continue exposing the neck"
+    );
+  }
+});
+
+test("SVG subtracts and strokes the same resolved garment cutout cycles", () => {
+  const rig = solve({
+    yaw: 0.7,
+    pitch: -0.2,
+    sternalNotchZ: 45,
+    showClothing: true,
+    clothingCollarHeight: 30,
+    clothingCollarOpeningWidth: 0.8,
+    clothingCollarOpeningDepth: 36,
+    showBreastplate: true,
+    breastplateNeckClearance: 18,
+    breastplateNeckDepth: 42
+  });
+  const svg = renderFaceSvg(rig);
+
+  assert.ok(svg.includes('id="clothing-shell-clip"'));
+  assert.ok(svg.includes('id="breastplate-shell-clip"'));
+
+  for (const [className, garment] of [
+    ["clothing", rig.body.clothing],
+    ["breastplate", rig.armor.breastplate]
+  ]) {
+    for (const cutout of garment.cutouts) {
+      const path = `d="${renderPointPathForTest(cutout)} Z"`;
+      assert.ok(svg.split(path).length - 1 >= 2, `${className} cutout should be used by its mask and stroke`);
     }
   }
 });
@@ -599,6 +861,10 @@ test("garment geometry remains finite and simple across pose and control extreme
           for (const [garmentIndex, garment] of garments.entries()) {
             for (const [shapeIndex, shape] of garment.shapes.entries()) {
               assertValidPolygon(shape.points, `garment ${garmentIndex}:${shapeIndex} at ${yaw},${pitch}`);
+            }
+
+            for (const [cutoutIndex, cutout] of garment.cutouts.entries()) {
+              assertValidPolygon(cutout, `garment cutout ${garmentIndex}:${cutoutIndex} at ${yaw},${pitch}`);
             }
 
             for (const point of [...garment.cutout, ...garment.neckline]) {

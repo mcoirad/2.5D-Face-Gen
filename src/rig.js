@@ -1035,7 +1035,7 @@ function isValidGarmentPolygon(points) {
     && !polygonSelfIntersects(points);
 }
 
-function offsetPolygon(points, distance, joinStyle) {
+function buildRawOffsetPolygon(points, distance, joinStyle) {
   const source = normalizeUnionPolygon(points);
 
   if (distance <= POLYGON_UNION_EPSILON || source.length < 3) {
@@ -1105,21 +1105,260 @@ function offsetPolygon(points, distance, joinStyle) {
     }
   }
 
-  const normalized = normalizeUnionPolygon(result);
+  return normalizeUnionPolygon(result);
+}
 
-  return isValidGarmentPolygon(normalized) ? normalized : null;
+function segmentParameterForPoint(point, start, end) {
+  const edgeX = end.x - start.x;
+  const edgeY = end.y - start.y;
+  const lengthSquared = edgeX * edgeX + edgeY * edgeY;
+
+  if (lengthSquared <= POLYGON_UNION_EPSILON * POLYGON_UNION_EPSILON) {
+    return 0;
+  }
+
+  return clamp(
+    ((point.x - start.x) * edgeX + (point.y - start.y) * edgeY) / lengthSquared,
+    0,
+    1
+  );
+}
+
+function addBoundaryContactSplit(point, ownParameter, otherStart, otherEnd, ownSplits, otherSplits) {
+  if (!pointOnSegment(point, otherStart, otherEnd)) {
+    return;
+  }
+
+  ownSplits.push(ownParameter);
+  otherSplits.push(segmentParameterForPoint(point, otherStart, otherEnd));
+}
+
+function makeSplitBoundarySegments(polygon, splitParameters) {
+  const segments = [];
+
+  for (let edgeIndex = 0; edgeIndex < polygon.length; edgeIndex += 1) {
+    const start = polygon[edgeIndex];
+    const end = polygon[(edgeIndex + 1) % polygon.length];
+    const parameters = uniqueSortedParameters(splitParameters[edgeIndex]);
+
+    for (let splitIndex = 0; splitIndex < parameters.length - 1; splitIndex += 1) {
+      const from = pointAlongSegment(start, end, parameters[splitIndex]);
+      const to = pointAlongSegment(start, end, parameters[splitIndex + 1]);
+
+      if (!pointsNearlyEqual(from, to)) {
+        segments.push({ from, to });
+      }
+    }
+  }
+
+  return segments;
+}
+
+function polygonContainsSourcePolygon(candidate, source) {
+  return source.every(point => (
+    pointOnPolygonBoundary(point, candidate) || isPointInPolygon(point, candidate)
+  ));
+}
+
+function findStrictSelfIntersection(points) {
+  for (let firstIndex = 0; firstIndex < points.length; firstIndex += 1) {
+    const firstStart = points[firstIndex];
+    const firstEnd = points[(firstIndex + 1) % points.length];
+
+    for (let secondIndex = firstIndex + 1; secondIndex < points.length; secondIndex += 1) {
+      if (segmentsAreAdjacent(firstIndex, secondIndex, points.length)) {
+        continue;
+      }
+
+      const intersection = segmentIntersectionParameters(
+        firstStart,
+        firstEnd,
+        points[secondIndex],
+        points[(secondIndex + 1) % points.length]
+      );
+
+      if (
+        intersection
+        && intersection.t > POLYGON_UNION_EPSILON
+        && intersection.t < 1 - POLYGON_UNION_EPSILON
+        && intersection.u > POLYGON_UNION_EPSILON
+        && intersection.u < 1 - POLYGON_UNION_EPSILON
+      ) {
+        return {
+          firstIndex,
+          secondIndex,
+          point: pointAlongSegment(firstStart, firstEnd, intersection.t)
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function trimOffsetCrossingLoops(rawPoints) {
+  let points = normalizeUnionPolygon(rawPoints);
+
+  // A positive offset can close a narrow concavity. The naive edge walk then
+  // crosses itself and encloses a small loop at that closure. At each strict
+  // crossing, the two routes back to the intersection form the artifact loop
+  // and the outer envelope; retaining the larger route removes one loop while
+  // preserving the requested offset everywhere else.
+  for (let iteration = 0; iteration < rawPoints.length; iteration += 1) {
+    const crossing = findStrictSelfIntersection(points);
+
+    if (!crossing) {
+      return points;
+    }
+
+    const firstCycle = normalizeUnionPolygon([
+      crossing.point,
+      ...points.slice(crossing.firstIndex + 1, crossing.secondIndex + 1)
+    ]);
+    const secondCycle = normalizeUnionPolygon([
+      crossing.point,
+      ...points.slice(crossing.secondIndex + 1),
+      ...points.slice(0, crossing.firstIndex + 1)
+    ]);
+    const candidates = [firstCycle, secondCycle]
+      .filter(candidate => candidate.length >= 3)
+      .sort((a, b) => Math.abs(polygonSignedArea(b)) - Math.abs(polygonSignedArea(a)));
+
+    if (!candidates.length || candidates[0].length >= points.length) {
+      return null;
+    }
+
+    points = candidates[0];
+  }
+
+  return null;
+}
+
+function resolveOffsetSelfIntersections(rawPoints, sourcePoints) {
+  const raw = normalizeUnionPolygon(rawPoints);
+  const source = normalizeUnionPolygon(sourcePoints);
+  const trimmed = trimOffsetCrossingLoops(raw);
+
+  if (
+    trimmed
+    && isValidGarmentPolygon(trimmed)
+    && polygonContainsSourcePolygon(trimmed, source)
+  ) {
+    return rotatePolygonToTopLeft(trimmed);
+  }
+
+  const splitParameters = raw.map(() => [0, 1]);
+  let foundBoundaryContact = false;
+
+  for (let firstIndex = 0; firstIndex < raw.length; firstIndex += 1) {
+    const firstStart = raw[firstIndex];
+    const firstEnd = raw[(firstIndex + 1) % raw.length];
+
+    for (let secondIndex = firstIndex + 1; secondIndex < raw.length; secondIndex += 1) {
+      if (segmentsAreAdjacent(firstIndex, secondIndex, raw.length)) {
+        continue;
+      }
+
+      const secondStart = raw[secondIndex];
+      const secondEnd = raw[(secondIndex + 1) % raw.length];
+      const intersection = segmentIntersectionParameters(firstStart, firstEnd, secondStart, secondEnd);
+      const firstSplitCount = splitParameters[firstIndex].length;
+      const secondSplitCount = splitParameters[secondIndex].length;
+
+      if (intersection) {
+        splitParameters[firstIndex].push(intersection.t);
+        splitParameters[secondIndex].push(intersection.u);
+      } else {
+        // Parallel overlaps do not have a unique line intersection. Splitting
+        // at every endpoint that lies on the opposite edge turns the overlap
+        // into duplicate subsegments that the boundary deduplicator can drop.
+        addBoundaryContactSplit(
+          firstStart,
+          0,
+          secondStart,
+          secondEnd,
+          splitParameters[firstIndex],
+          splitParameters[secondIndex]
+        );
+        addBoundaryContactSplit(
+          firstEnd,
+          1,
+          secondStart,
+          secondEnd,
+          splitParameters[firstIndex],
+          splitParameters[secondIndex]
+        );
+        addBoundaryContactSplit(
+          secondStart,
+          0,
+          firstStart,
+          firstEnd,
+          splitParameters[secondIndex],
+          splitParameters[firstIndex]
+        );
+        addBoundaryContactSplit(
+          secondEnd,
+          1,
+          firstStart,
+          firstEnd,
+          splitParameters[secondIndex],
+          splitParameters[firstIndex]
+        );
+      }
+
+      if (
+        splitParameters[firstIndex].length > firstSplitCount
+        || splitParameters[secondIndex].length > secondSplitCount
+      ) {
+        foundBoundaryContact = true;
+      }
+    }
+  }
+
+  if (!foundBoundaryContact) {
+    return null;
+  }
+
+  const segments = deduplicateBoundarySegments(
+    makeSplitBoundarySegments(raw, splitParameters)
+  );
+  const cycles = stitchBoundarySegments(segments);
+
+  if (!cycles) {
+    return null;
+  }
+
+  return cycles.find(candidate => (
+    isValidGarmentPolygon(candidate)
+    && polygonContainsSourcePolygon(candidate, source)
+  )) ?? null;
+}
+
+function resolveOffsetAttempt(source, distance, joinStyle) {
+  const raw = buildRawOffsetPolygon(source, distance, joinStyle);
+
+  if (!raw) {
+    return null;
+  }
+
+  return isValidGarmentPolygon(raw)
+    ? raw
+    : resolveOffsetSelfIntersections(raw, source);
 }
 
 function offsetPolygonWithFallback(points, distance, joinStyle) {
-  const preferred = offsetPolygon(points, distance, joinStyle);
+  const source = normalizeUnionPolygon(points);
+  const preferred = resolveOffsetAttempt(source, distance, joinStyle);
 
   if (preferred) {
     return preferred;
   }
 
-  const beveled = offsetPolygon(points, distance, "bevel");
+  const beveled = joinStyle === "bevel"
+    ? null
+    : resolveOffsetAttempt(source, distance, "bevel");
 
-  return beveled ?? normalizeUnionPolygon(points);
+  return beveled ?? source;
 }
 
 function mergePolygonCycles(polygons) {
@@ -2368,6 +2607,26 @@ function polygonBounds(polygons) {
   };
 }
 
+function makeTopOpenCutout(boundary, maskTop) {
+  if (boundary.length < 2) {
+    return null;
+  }
+
+  const cutout = [
+    { x: boundary[0].x, y: maskTop },
+    ...boundary,
+    { x: boundary.at(-1).x, y: maskTop }
+  ];
+
+  return isValidGarmentPolygon(cutout) ? cutout : null;
+}
+
+function resolveGarmentCutouts(cutouts) {
+  const valid = cutouts.filter(points => points && isValidGarmentPolygon(points));
+
+  return valid.length ? mergePolygonCycles(valid) : [];
+}
+
 function solveClothing(params, garmentSource) {
   if (!params.showClothing || !garmentSource?.polygons.length) {
     return null;
@@ -2377,14 +2636,23 @@ function solveClothing(params, garmentSource) {
   const collarAmount = garmentSource.neckLength > POLYGON_UNION_EPSILON
     ? collarHeight / garmentSource.neckLength
     : 0;
-  const collarTopLeft = {
-    x: lerp(garmentSource.neckBottomLeft.x, garmentSource.neckTopLeft.x, collarAmount),
-    y: lerp(garmentSource.neckBottomLeft.y, garmentSource.neckTopLeft.y, collarAmount)
-  };
-  const collarTopRight = {
-    x: lerp(garmentSource.neckBottomRight.x, garmentSource.neckTopRight.x, collarAmount),
-    y: lerp(garmentSource.neckBottomRight.y, garmentSource.neckTopRight.y, collarAmount)
-  };
+  const collarModelY = lerp(garmentSource.neckBottomY, garmentSource.neckTopY, collarAmount);
+  const collarWidth = lerp(
+    garmentSource.neckBottomWidth,
+    garmentSource.neckTopWidth,
+    collarAmount
+  );
+  const collarHalfWidth = collarWidth / 2;
+  const collarTopLeft = garmentSource.projectTorsoPoint(
+    -collarHalfWidth,
+    collarModelY,
+    garmentSource.frontZ
+  );
+  const collarTopRight = garmentSource.projectTorsoPoint(
+    collarHalfWidth,
+    collarModelY,
+    garmentSource.frontZ
+  );
   const clothingTorsoPolygon = [
     collarTopLeft,
     collarTopRight,
@@ -2404,29 +2672,37 @@ function solveClothing(params, garmentSource) {
   const bounds = polygonBounds(polygons);
   const openingWidth = clamp(params.clothingCollarOpeningWidth ?? 0.4, 0, 1);
   const requestedDepth = Math.max(0, params.clothingCollarOpeningDepth ?? 0);
-  const collarMidpoint = {
-    x: (collarTopLeft.x + collarTopRight.x) / 2,
-    y: (collarTopLeft.y + collarTopRight.y) / 2
-  };
-  const effectiveDepth = Math.min(requestedDepth, Math.max(0, bounds.maxY - collarMidpoint.y - 1));
+  const collarMidpoint = garmentSource.projectTorsoPoint(
+    0,
+    collarModelY,
+    garmentSource.frontZ
+  );
+  const projectedDepthScale = Math.max(Math.cos(params.pitch), POLYGON_UNION_EPSILON);
+  const effectiveDepth = Math.min(
+    requestedDepth,
+    Math.max(0, (bounds.maxY - collarMidpoint.y - 1) / projectedDepthScale)
+  );
   const maskTop = bounds.minY - 100;
   let neckline = [collarTopLeft, collarTopRight];
 
   if (openingWidth > POLYGON_UNION_EPSILON && effectiveDepth > POLYGON_UNION_EPSILON) {
     const leftAmount = (1 - openingWidth) / 2;
     const rightAmount = 1 - leftAmount;
-    const leftLip = {
-      x: lerp(collarTopLeft.x, collarTopRight.x, leftAmount),
-      y: lerp(collarTopLeft.y, collarTopRight.y, leftAmount)
-    };
-    const rightLip = {
-      x: lerp(collarTopLeft.x, collarTopRight.x, rightAmount),
-      y: lerp(collarTopLeft.y, collarTopRight.y, rightAmount)
-    };
-    const tip = {
-      x: collarMidpoint.x,
-      y: collarMidpoint.y + effectiveDepth
-    };
+    const leftLip = garmentSource.projectTorsoPoint(
+      lerp(-collarHalfWidth, collarHalfWidth, leftAmount),
+      collarModelY,
+      garmentSource.frontZ
+    );
+    const rightLip = garmentSource.projectTorsoPoint(
+      lerp(-collarHalfWidth, collarHalfWidth, rightAmount),
+      collarModelY,
+      garmentSource.frontZ
+    );
+    const tip = garmentSource.projectTorsoPoint(
+      0,
+      collarModelY + effectiveDepth,
+      garmentSource.frontZ
+    );
     neckline = [
       collarTopLeft,
       leftLip,
@@ -2435,11 +2711,20 @@ function solveClothing(params, garmentSource) {
       collarTopRight
     ];
   }
-  const cutout = [
-    { x: collarTopLeft.x, y: maskTop },
-    ...neckline,
-    { x: collarTopRight.x, y: maskTop }
-  ];
+  const projectedCutout = makeTopOpenCutout(neckline, maskTop);
+  const fallbackCollarLeft = {
+    x: lerp(garmentSource.neckBottomLeft.x, garmentSource.neckTopLeft.x, collarAmount),
+    y: lerp(garmentSource.neckBottomLeft.y, garmentSource.neckTopLeft.y, collarAmount)
+  };
+  const fallbackCollarRight = {
+    x: lerp(garmentSource.neckBottomRight.x, garmentSource.neckTopRight.x, collarAmount),
+    y: lerp(garmentSource.neckBottomRight.y, garmentSource.neckTopRight.y, collarAmount)
+  };
+  const fallbackCutout = makeTopOpenCutout([fallbackCollarLeft, fallbackCollarRight], maskTop);
+  const cutouts = resolveGarmentCutouts([
+    projectedCutout ?? fallbackCutout
+  ]);
+  const cutout = cutouts[0] ?? null;
 
   return {
     shapes: polygons.map((points, index) => ({
@@ -2449,6 +2734,7 @@ function solveClothing(params, garmentSource) {
       stroke: "black"
     })),
     cutout,
+    cutouts,
     neckline,
     collarTopLeft,
     collarTopRight,
@@ -2467,31 +2753,45 @@ function solveBreastplate(params, garmentSource) {
     "miter"
   );
   const bounds = polygonBounds(polygons);
-  const neckCenterX = (garmentSource.neckBottomLeft.x + garmentSource.neckBottomRight.x) / 2;
-  const neckBaselineY = (garmentSource.neckBottomLeft.y + garmentSource.neckBottomRight.y) / 2;
   const clearance = clamp(params.breastplateNeckClearance ?? 8, 0, 40);
-  const leftX = clamp(garmentSource.neckBottomLeft.x - clearance, bounds.minX, neckCenterX);
-  const rightX = clamp(garmentSource.neckBottomRight.x + clearance, neckCenterX, bounds.maxX);
+  const endpointHalfWidth = garmentSource.neckBottomWidth / 2 + clearance;
+  const projectedDepthScale = Math.max(Math.cos(params.pitch), POLYGON_UNION_EPSILON);
+  const flatBoundary = [];
+
+  for (let sample = 0; sample <= 16; sample += 1) {
+    const amount = sample / 16;
+    flatBoundary.push(garmentSource.projectTorsoPoint(
+      lerp(-endpointHalfWidth, endpointHalfWidth, amount),
+      garmentSource.neckBottomY,
+      garmentSource.frontZ
+    ));
+  }
+
+  const deepestFlatY = Math.max(...flatBoundary.map(point => point.y));
   const depth = Math.min(
     Math.max(0, params.breastplateNeckDepth ?? 24),
-    Math.max(0, bounds.maxY - neckBaselineY - 1)
+    Math.max(0, (bounds.maxY - deepestFlatY - 1) / projectedDepthScale)
   );
   const neckline = [];
 
   for (let sample = 0; sample <= 16; sample += 1) {
     const amount = sample / 16;
-    neckline.push({
-      x: lerp(leftX, rightX, amount),
-      y: neckBaselineY + 4 * amount * (1 - amount) * depth
-    });
+    neckline.push(garmentSource.projectTorsoPoint(
+      lerp(-endpointHalfWidth, endpointHalfWidth, amount),
+      garmentSource.neckBottomY + 4 * amount * (1 - amount) * depth,
+      garmentSource.frontZ
+    ));
   }
 
   const maskTop = bounds.minY - 100;
-  const cutout = [
-    { x: leftX, y: maskTop },
-    ...neckline,
-    { x: rightX, y: maskTop }
+  const persistentBoundary = [
+    garmentSource.neckBottomLeft,
+    garmentSource.neckBottomRight
   ];
+  const persistentCutout = makeTopOpenCutout(persistentBoundary, maskTop);
+  const projectedCutout = makeTopOpenCutout(neckline, maskTop);
+  const cutouts = resolveGarmentCutouts([persistentCutout, projectedCutout]);
+  const cutout = cutouts[0] ?? persistentCutout;
 
   return {
     shapes: polygons.map((points, index) => ({
@@ -2501,6 +2801,7 @@ function solveBreastplate(params, garmentSource) {
       stroke: "black"
     })),
     cutout,
+    cutouts,
     neckline,
     neckClearance: clearance,
     neckDepth: depth
@@ -2794,6 +3095,12 @@ function solveBody(params, pose, structure) {
   const garmentSource = {
     polygons: unionGarmentSource(necklessTorsoPolygon, ribCageGuide),
     ribCageGuide,
+    projectTorsoPoint,
+    frontZ: params.sternalNotchZ,
+    neckTopY: topY,
+    neckBottomY: bottomY,
+    neckTopWidth: params.neckTopWidth,
+    neckBottomWidth: params.neckBottomWidth,
     neckTopLeft,
     neckTopRight,
     neckBottomLeft,

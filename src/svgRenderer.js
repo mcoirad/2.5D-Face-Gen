@@ -157,7 +157,6 @@ function renderGarmentLayer(garment, className) {
       </g>
     `
     : "";
-
   return `
     ${mask}
     <g class="${className}-layer"${maskAttribute}>

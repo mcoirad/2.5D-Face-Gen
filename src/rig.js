@@ -2624,7 +2624,114 @@ function makeTopOpenCutout(boundary, maskTop) {
 function resolveGarmentCutouts(cutouts) {
   const valid = cutouts.filter(points => points && isValidGarmentPolygon(points));
 
-  return valid.length ? mergePolygonCycles(valid) : [];
+  if (!valid.length) {
+    return [];
+  }
+
+  const merged = mergePolygonCycles(valid);
+
+  return merged.filter((cycle, cycleIndex) => !merged.some((candidate, candidateIndex) => (
+    candidateIndex !== cycleIndex
+    && Math.abs(polygonSignedArea(candidate)) > Math.abs(polygonSignedArea(cycle)) + POLYGON_UNION_EPSILON
+    && polygonContainsSourcePolygon(candidate, cycle)
+  )));
+}
+
+function garmentTorsoSurfaceZ(garmentSource, y) {
+  const surfaceSpan = garmentSource.xiphoidY - garmentSource.sternalNotchY;
+  const amount = surfaceSpan > POLYGON_UNION_EPSILON
+    ? clamp((y - garmentSource.sternalNotchY) / surfaceSpan, 0, 1)
+    : 0;
+
+  return lerp(garmentSource.frontZ, garmentSource.xiphoidZ, amount);
+}
+
+function projectedLowerEnvelope(points) {
+  if (points.length < 3) {
+    return null;
+  }
+
+  const segments = points.map((start, index) => ({
+    start,
+    end: points[(index + 1) % points.length]
+  })).filter(({ start, end }) => !pointsNearlyEqual(start, end));
+  const xBreakpoints = segments.flatMap(({ start, end }) => [start.x, end.x]);
+
+  for (let firstIndex = 0; firstIndex < segments.length; firstIndex += 1) {
+    const first = segments[firstIndex];
+
+    for (let secondIndex = firstIndex + 1; secondIndex < segments.length; secondIndex += 1) {
+      if (segmentsAreAdjacent(firstIndex, secondIndex, segments.length)) {
+        continue;
+      }
+
+      const second = segments[secondIndex];
+      const intersection = segmentIntersectionParameters(
+        first.start,
+        first.end,
+        second.start,
+        second.end
+      );
+
+      if (intersection) {
+        xBreakpoints.push(pointAlongSegment(first.start, first.end, intersection.t).x);
+      } else {
+        for (const point of [first.start, first.end]) {
+          if (pointOnSegment(point, second.start, second.end)) {
+            xBreakpoints.push(point.x);
+          }
+        }
+
+        for (const point of [second.start, second.end]) {
+          if (pointOnSegment(point, first.start, first.end)) {
+            xBreakpoints.push(point.x);
+          }
+        }
+      }
+    }
+  }
+
+  const sortedX = uniqueSortedParameters(xBreakpoints);
+  const envelope = [];
+
+  for (const x of sortedX) {
+    let lowestY = -Infinity;
+
+    for (const { start, end } of segments) {
+      const minX = Math.min(start.x, end.x) - POLYGON_UNION_EPSILON;
+      const maxX = Math.max(start.x, end.x) + POLYGON_UNION_EPSILON;
+
+      if (x < minX || x > maxX) {
+        continue;
+      }
+
+      const deltaX = end.x - start.x;
+      let y;
+
+      if (Math.abs(deltaX) <= POLYGON_UNION_EPSILON) {
+        if (Math.abs(x - start.x) > POLYGON_UNION_EPSILON) {
+          continue;
+        }
+
+        y = Math.max(start.y, end.y);
+      } else {
+        const amount = clamp((x - start.x) / deltaX, 0, 1);
+        y = lerp(start.y, end.y, amount);
+      }
+
+      lowestY = Math.max(lowestY, y);
+    }
+
+    if (Number.isFinite(lowestY)) {
+      const point = { x, y: lowestY };
+
+      if (!envelope.length || !pointsNearlyEqual(envelope.at(-1), point)) {
+        envelope.push(point);
+      }
+    }
+  }
+
+  return envelope.length >= 2 ? envelope : null;
 }
 
 const CLOTHING_V_EDGE_SAMPLES = 8;
@@ -2675,18 +2782,10 @@ function solveClothing(params, garmentSource) {
   const openingWidth = clamp(params.clothingCollarOpeningWidth ?? 0.4, 0, 1);
   const requestedDepth = Math.max(0, params.clothingCollarOpeningDepth ?? 0);
   const vTipDepth = clamp(params.clothingVTipDepth ?? 0, 0, 100);
-  const torsoSurfaceZ = y => {
-    const surfaceSpan = garmentSource.xiphoidY - garmentSource.sternalNotchY;
-    const amount = surfaceSpan > POLYGON_UNION_EPSILON
-      ? clamp((y - garmentSource.sternalNotchY) / surfaceSpan, 0, 1)
-      : 0;
-
-    return lerp(garmentSource.frontZ, garmentSource.xiphoidZ, amount);
-  };
   const projectTip = depth => garmentSource.projectTorsoPoint(
     0,
     collarModelY + depth,
-    torsoSurfaceZ(collarModelY + depth) + vTipDepth
+    garmentTorsoSurfaceZ(garmentSource, collarModelY + depth) + vTipDepth
   );
   const garmentBottomY = bounds.maxY - 1;
   let effectiveDepth = requestedDepth;
@@ -2729,7 +2828,7 @@ function solveClothing(params, garmentSource) {
         points.push(garmentSource.projectTorsoPoint(
           lerp(fromX, toX, amount),
           y,
-          torsoSurfaceZ(y) + vTipDepth * tipAmount
+          garmentTorsoSurfaceZ(garmentSource, y) + vTipDepth * tipAmount
         ));
       }
 
@@ -2818,34 +2917,65 @@ function solveBreastplate(params, garmentSource) {
   );
   const bounds = polygonBounds(polygons);
   const clearance = clamp(params.breastplateNeckClearance ?? 8, 0, 40);
-  const endpointHalfWidth = garmentSource.neckBottomWidth / 2 + clearance;
-  const projectedDepthScale = Math.max(Math.cos(params.pitch), POLYGON_UNION_EPSILON);
-  const flatBoundary = [];
+  const wrapDepth = clamp(params.breastplateNeckWrapDepth ?? 0, 0, 100);
+  const clothingExpansion = params.showClothing
+    ? clamp(params.clothingOffset ?? 3, 0, 12)
+    : 0;
+  const shirtRadiusX = garmentSource.neckBottomWidth / 2 + clothingExpansion;
+  const shirtRadiusZ = garmentSource.neckBottomWidth * 0.4 + clothingExpansion;
+  const apertureRadiusX = shirtRadiusX + clearance;
+  const apertureRadiusZ = shirtRadiusZ + clearance + wrapDepth;
+  const makeAperture = depth => {
+    const points = [];
 
-  for (let sample = 0; sample <= 16; sample += 1) {
-    const amount = sample / 16;
-    flatBoundary.push(garmentSource.projectTorsoPoint(
-      lerp(-endpointHalfWidth, endpointHalfWidth, amount),
-      garmentSource.neckBottomY,
-      garmentSource.frontZ
-    ));
+    for (let sample = 0; sample < 48; sample += 1) {
+      const theta = sample / 48 * Math.PI * 2;
+      const frontAmount = Math.max(0, Math.cos(theta));
+      const y = garmentSource.neckBottomY + frontAmount * frontAmount * depth;
+
+      points.push(garmentSource.projectTorsoPoint(
+        apertureRadiusX * Math.sin(theta),
+        y,
+        apertureRadiusZ * Math.cos(theta)
+      ));
+    }
+
+    return {
+      ring: points,
+      envelope: projectedLowerEnvelope(points)
+    };
+  };
+  const requestedDepth = Math.max(0, params.breastplateNeckDepth ?? 24);
+  const garmentBottomY = bounds.maxY - 1;
+  let depth = requestedDepth;
+  let aperture = makeAperture(depth);
+
+  if (aperture.envelope && Math.max(...aperture.envelope.map(point => point.y)) > garmentBottomY) {
+    let lowerDepth = 0;
+    let upperDepth = depth;
+
+    for (let iteration = 0; iteration < 32; iteration += 1) {
+      const candidateDepth = (lowerDepth + upperDepth) / 2;
+      const candidateAperture = makeAperture(candidateDepth);
+      const candidateBottomY = candidateAperture.envelope
+        ? Math.max(...candidateAperture.envelope.map(point => point.y))
+        : Infinity;
+
+      if (candidateBottomY <= garmentBottomY) {
+        lowerDepth = candidateDepth;
+      } else {
+        upperDepth = candidateDepth;
+      }
+    }
+
+    depth = lowerDepth;
+    aperture = makeAperture(depth);
   }
 
-  const deepestFlatY = Math.max(...flatBoundary.map(point => point.y));
-  const depth = Math.min(
-    Math.max(0, params.breastplateNeckDepth ?? 24),
-    Math.max(0, (bounds.maxY - deepestFlatY - 1) / projectedDepthScale)
-  );
-  const neckline = [];
-
-  for (let sample = 0; sample <= 16; sample += 1) {
-    const amount = sample / 16;
-    neckline.push(garmentSource.projectTorsoPoint(
-      lerp(-endpointHalfWidth, endpointHalfWidth, amount),
-      garmentSource.neckBottomY + 4 * amount * (1 - amount) * depth,
-      garmentSource.frontZ
-    ));
-  }
+  const neckline = aperture.envelope ?? [
+    garmentSource.neckBottomLeft,
+    garmentSource.neckBottomRight
+  ];
 
   const maskTop = bounds.minY - 100;
   const persistentBoundary = [
@@ -2853,8 +2983,8 @@ function solveBreastplate(params, garmentSource) {
     garmentSource.neckBottomRight
   ];
   const persistentCutout = makeTopOpenCutout(persistentBoundary, maskTop);
-  const projectedCutout = makeTopOpenCutout(neckline, maskTop);
-  const cutouts = resolveGarmentCutouts([persistentCutout, projectedCutout]);
+  const apertureCutout = makeTopOpenCutout(neckline, maskTop);
+  const cutouts = resolveGarmentCutouts([persistentCutout, apertureCutout]);
   const cutout = cutouts[0] ?? persistentCutout;
 
   return {
@@ -2867,8 +2997,16 @@ function solveBreastplate(params, garmentSource) {
     cutout,
     cutouts,
     neckline,
+    apertureRing: aperture.ring,
+    apertureRadii: {
+      x: apertureRadiusX,
+      z: apertureRadiusZ,
+      shirtX: shirtRadiusX,
+      shirtZ: shirtRadiusZ
+    },
     neckClearance: clearance,
-    neckDepth: depth
+    neckDepth: depth,
+    neckWrapDepth: wrapDepth
   };
 }
 
@@ -3160,6 +3298,7 @@ function solveBody(params, pose, structure) {
     polygons: unionGarmentSource(necklessTorsoPolygon, ribCageGuide),
     ribCageGuide,
     projectTorsoPoint,
+    yaw: pose.yaw,
     frontZ: params.sternalNotchZ,
     sternalNotchY,
     xiphoidY,

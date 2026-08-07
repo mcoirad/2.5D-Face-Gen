@@ -142,6 +142,7 @@ const controlGroups = [
       "breastplateOffset",
       "breastplateNeckClearance",
       "breastplateNeckDepth",
+      "breastplateNeckWrapDepth",
       "pauldronPosition",
       "pauldronYOffset",
       "pauldronCurve"

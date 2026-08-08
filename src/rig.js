@@ -7,6 +7,7 @@ import {
 } from "./geometry.js";
 import { makeHairV2Lock, solveHairV2, solveHeadband } from "./hairV2.js";
 import { solveDoublePonytail } from "./doublePonytail.js";
+import { solveCloak } from "./cloak.js";
 import { solveFerronniere } from "./ferronniere.js";
 import { solvePonytail } from "./ponytail.js";
 import { solveSideTiedLocks } from "./sideTiedLocks.js";
@@ -220,6 +221,7 @@ export function solveFaceRig(params) {
 
   const solvedBody = solveBody(params, pose, head.structure);
   const armor = solveArmor(params, pose, head.structure, solvedBody);
+  const cloak = solveCloak(params, pose, solvedBody.garmentSource);
   const { garmentSource: _garmentSource, ...body } = solvedBody;
   const facialHair = solveFacialHair(params, pose, head, features);
   const ponytail = solvePonytail(params, pose, head.structure);
@@ -266,6 +268,7 @@ export function solveFaceRig(params) {
     ferronniere: solveFerronniere(params, pose, head.structure, features),
     body,
     armor,
+    cloak,
     ears: params.showEars ? solveEars(params, pose, head.structure, features, head.outline) : null,
     helmet: solveHelmet(params, pose, head.structure, features),
     features,
@@ -3299,6 +3302,9 @@ function solveBody(params, pose, structure) {
     ribCageGuide,
     projectTorsoPoint,
     yaw: pose.yaw,
+    torsoHalfWidth: orbitRadius,
+    shoulderModelY,
+    shoulderTopModelY: shoulderModelY - params.shoulderRadius,
     frontZ: params.sternalNotchZ,
     sternalNotchY,
     xiphoidY,

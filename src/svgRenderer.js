@@ -6,11 +6,13 @@ export function renderFaceSvg(rig) {
   return `
     <svg viewBox="0 0 500 500" role="img" aria-label="2.5D anime face preview">
       ${rig.removeStrokes ? renderRemoveStrokesStyle() : ""}
+      ${renderCloak(rig.cloak, "back")}
       ${renderArmor(rig.armor, true)}
       ${renderBodyBase(rig.body)}
       ${renderGarmentLayer(rig.body?.clothing, "clothing")}
       ${renderGarmentLayer(rig.armor?.breastplate, "breastplate")}
       ${renderArmor(rig.armor, false)}
+      ${renderCloak(rig.cloak, "front")}
       ${renderBodyGuides(rig.body, rig.showGuides)}
       ${renderFerronniere(rig.ferronniere, "back")}
       ${renderHelmetLayers(rig.helmet?.back)}
@@ -164,6 +166,89 @@ function renderGarmentLayer(garment, className) {
     </g>
     ${gildedEdge || neckline}
   `;
+}
+
+function renderCloak(cloak, layer) {
+  if (!cloak) {
+    return "";
+  }
+
+  const sections = [...(cloak[layer] ?? [])].sort(compareCloakSections);
+  if (!sections.length) {
+    return "";
+  }
+
+  const outlines = sections.map(section => `
+    <path
+      class="cloak-envelope-outline ${section.envelope.id}-outline"
+      d="${renderPointPath(section.envelope.points)} Z"
+      fill="none"
+      stroke="${cloak.colors.outline}"
+      stroke-width="8"
+      stroke-linejoin="round"
+    />
+  `).join("");
+  const fills = sections.map(section => `
+    <g class="cloak-section ${section.id}">
+      <path
+        class="cloak-envelope-fill ${section.envelope.id}"
+        d="${renderPointPath(section.envelope.points)} Z"
+        fill="${section.envelope.fill}"
+        stroke="none"
+      />
+      ${section.crest ? `
+        <path
+          class="cloak-crest"
+          d="${renderPointPath(section.crest.points)} Z"
+          fill="${section.crest.fill}"
+          stroke="none"
+        />
+      ` : ""}
+      ${section.underside ? `
+        <path
+          class="cloak-underside"
+          d="${renderPointPath(section.underside.points)} Z"
+          fill="${section.underside.fill}"
+          stroke="none"
+        />
+      ` : ""}
+      ${section.crease ? `
+        <path
+          class="cloak-crease"
+          d="${renderPointPath(section.crease.points)}"
+          fill="none"
+          stroke="${section.crease.stroke}"
+          stroke-width="${section.crease.width}"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      ` : ""}
+    </g>
+  `).join("");
+
+  return `
+    <g class="cloak-${layer}-layer">
+      ${outlines}
+      ${fills}
+    </g>
+  `;
+}
+
+function compareCloakSections(first, second) {
+  if (first.topFlap !== second.topFlap) {
+    return first.topFlap ? 1 : -1;
+  }
+  if (first.frontFlap !== second.frontFlap) {
+    return first.frontFlap ? 1 : -1;
+  }
+  const depthDifference = first.depth - second.depth;
+  if (Math.abs(depthDifference) > 1e-6) {
+    return depthDifference;
+  }
+  if (first.bandIndex !== second.bandIndex) {
+    return second.bandIndex - first.bandIndex;
+  }
+  return first.id.localeCompare(second.id);
 }
 
 function renderClavicleLine(line) {
@@ -330,6 +415,7 @@ function getHeadOutlinePathD(head, jawBend) {
 function renderHead(headPathD, skinColor = "#f6f1e8") {
   return `
     <path
+      class="head-shape"
       d="${headPathD}"
       fill="${skinColor}"
       stroke="black"

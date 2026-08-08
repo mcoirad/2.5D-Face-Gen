@@ -108,6 +108,26 @@ const controlGroups = [
     open: false
   },
   {
+    title: "Cloak — Cowl V1",
+    keys: [
+      "showCloak",
+      "cloakColor",
+      "showCloakShine",
+      "cloakFoldCount",
+      "cloakFoldScale",
+      "cloakFoldWidth",
+      "cloakFoldDepth",
+      "cloakFoldSag",
+      "cloakFoldOverhang",
+      "cloakFoldSweep",
+      "cloakFoldIrregularity",
+      "cloakShoulderDrape",
+      "cloakFrontOverlap",
+      "cloakAsymmetry"
+    ],
+    open: false
+  },
+  {
     title: "Chest Landmarks",
     keys: [
       "showClavicles",

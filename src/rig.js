@@ -25,6 +25,8 @@ const EYE_BAG_FIRST_CONTROL_OUT = 0.157;
 const EYE_BAG_FIRST_CONTROL_DOWN = 0.286;
 const EYE_BAG_SECOND_CONTROL_OUT = 0.482;
 const EYE_BAG_SECOND_CONTROL_DOWN = 0.406;
+const EYE_SCAR_COLOR = "#777777";
+const EYE_SCAR_IRIS_COLOR = "#4f718c";
 const DEFAULT_SKIN_COLOR = "#f6f1e8";
 const DEFAULTS = {
   lowerFaceWidth: 145,
@@ -1407,6 +1409,7 @@ function solveFeatures(params, pose, structure) {
     makeReferenceEye(projectStructure, structure.skull, pose.sign, referenceEyes[0], eyeScale, params, eyeYOffset, true, -1),
     makeReferenceEye(projectStructure, structure.skull, pose.sign, referenceEyes[1], eyeScale, params, eyeYOffset, true, 1)
   ];
+  applyEyeScar(params, eyes);
 
   // Width and protrusion both scale an X offset from the bridge, but two
   // different ones: width scales the nostril reference (base), which is what
@@ -3967,12 +3970,81 @@ function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, pa
     lidWidths,
     lashes,
     cornerMakeup,
+    scar: null,
     irisColor: isHexColor(params.eyeIrisColor) ? params.eyeIrisColor : "#5b4433",
     irisGradient: Boolean(params.eyeIrisGradient),
     // Compatibility fields for the helmet faceplate eye openings.
     rx: Math.max(topHalf, bottomHalf, w) * s,
     upperOpen: (upper + outerUp) * s,
     visible
+  };
+}
+
+function applyEyeScar(params, eyes) {
+  if (!params.showEyeScar || eyes.length < 2) {
+    return;
+  }
+
+  const screenSide = params.eyeScarSide === "right" ? "right" : "left";
+  const firstX = eyes[0].center.x;
+  const secondX = eyes[1].center.x;
+  let targetIndex;
+
+  if (firstX === secondX) {
+    targetIndex = screenSide === "left" ? 0 : 1;
+  } else if (screenSide === "left") {
+    targetIndex = firstX < secondX ? 0 : 1;
+  } else {
+    targetIndex = firstX > secondX ? 0 : 1;
+  }
+
+  const target = eyes[targetIndex];
+  const scar = makeEyeScar(target, screenSide);
+
+  target.irisColor = isHexColor(params.eyeScarIrisColor)
+    ? params.eyeScarIrisColor
+    : EYE_SCAR_IRIS_COLOR;
+  target.scar = scar;
+}
+
+function makeEyeScar(eye, screenSide) {
+  const quadPoints = Object.values(eye.quad);
+  const minY = Math.min(...quadPoints.map(point => point.y));
+  const maxY = Math.max(...quadPoints.map(point => point.y));
+  const visibleEyeHeight = Math.max(0, maxY - minY);
+  const extension = Math.max(20, visibleEyeHeight);
+  const width = clamp(eye.iris.r * 0.5, 2, 4);
+  const halfWidth = width / 2;
+  const endpointHalfWidth = halfWidth * 0.4;
+  const centerX = eye.center.x;
+  const upperCenterX = centerX + width * 0.12;
+  const lowerCenterX = centerX - width * 0.1;
+  const points = [
+    { x: centerX - endpointHalfWidth, y: minY - extension },
+    { x: upperCenterX - halfWidth, y: minY },
+    { x: lowerCenterX - halfWidth, y: maxY },
+    { x: centerX - endpointHalfWidth, y: maxY + extension },
+    { x: centerX + endpointHalfWidth, y: maxY + extension },
+    { x: lowerCenterX + halfWidth, y: maxY },
+    { x: upperCenterX + halfWidth, y: minY },
+    { x: centerX + endpointHalfWidth, y: minY - extension }
+  ];
+
+  if (
+    points.some(point => !Number.isFinite(point.x) || !Number.isFinite(point.y))
+    || Math.abs(polygonSignedArea(points)) <= POLYGON_UNION_EPSILON
+    || polygonSelfIntersects(points)
+  ) {
+    return null;
+  }
+
+  return {
+    points,
+    fill: EYE_SCAR_COLOR,
+    screenSide,
+    width,
+    eyelidMinY: minY,
+    eyelidMaxY: maxY
   };
 }
 

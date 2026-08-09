@@ -178,13 +178,16 @@ function renderCloak(cloak, layer) {
     return "";
   }
 
-  const outlines = sections.map(section => `
+  const outlines = [...(cloak.outlines?.[layer] ?? [])]
+    .sort(compareCloakSections)
+    .map(outline => `
     <path
-      class="cloak-envelope-outline ${section.envelope.id}-outline"
-      d="${renderPointPath(section.envelope.points)} Z"
+      class="cloak-envelope-outline cloak-${outline.kind} ${outline.id}"
+      d="${renderPointPath(outline.points)}"
       fill="none"
-      stroke="${cloak.colors.outline}"
-      stroke-width="8"
+      stroke="${outline.stroke}"
+      stroke-width="${outline.width}"
+      stroke-linecap="round"
       stroke-linejoin="round"
     />
   `).join("");
@@ -196,6 +199,14 @@ function renderCloak(cloak, layer) {
         fill="${section.envelope.fill}"
         stroke="none"
       />
+      ${section.silhouettePatches.map(patch => patch.base ? `
+        <path
+          class="cloak-silhouette-fill"
+          d="${renderPointPath(patch.base.points)} Z"
+          fill="${patch.base.fill}"
+          stroke="none"
+        />
+      ` : "").join("")}
       ${section.crest ? `
         <path
           class="cloak-crest"
@@ -204,6 +215,14 @@ function renderCloak(cloak, layer) {
           stroke="none"
         />
       ` : ""}
+      ${section.silhouettePatches.flatMap(patch => patch.crests).map(crest => `
+        <path
+          class="cloak-silhouette-crest"
+          d="${renderPointPath(crest.points)} Z"
+          fill="${crest.fill}"
+          stroke="none"
+        />
+      `).join("")}
       ${section.underside ? `
         <path
           class="cloak-underside"
@@ -212,24 +231,36 @@ function renderCloak(cloak, layer) {
           stroke="none"
         />
       ` : ""}
-      ${section.crease ? `
+      ${section.silhouettePatches.flatMap(patch => patch.undersides).map(underside => `
         <path
-          class="cloak-crease"
-          d="${renderPointPath(section.crease.points)}"
-          fill="none"
-          stroke="${section.crease.stroke}"
-          stroke-width="${section.crease.width}"
-          stroke-linecap="round"
-          stroke-linejoin="round"
+          class="cloak-silhouette-underside"
+          d="${renderPointPath(underside.points)} Z"
+          fill="${underside.fill}"
+          stroke="none"
         />
-      ` : ""}
+      `).join("")}
     </g>
   `).join("");
+  const creases = [...(cloak.creases?.[layer] ?? [])]
+    .sort(compareCloakSections)
+    .map(crease => `
+      <path
+        class="cloak-crease"
+        data-cloak-id="${crease.id}"
+        d="${renderPointPath(crease.points)}"
+        fill="none"
+        stroke="${crease.stroke}"
+        stroke-width="${crease.width}"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    `).join("");
 
   return `
     <g class="cloak-${layer}-layer">
       ${outlines}
       ${fills}
+      ${creases}
     </g>
   `;
 }
@@ -1178,6 +1209,7 @@ function renderEye(eye, index) {
       </radialGradient>` : ""}
     </defs>
     ${renderEyeCornerMakeup(eye.cornerMakeup)}
+    ${renderEyeScar(eye.scar)}
     <path
       d="${path}"
       fill="white"
@@ -1190,6 +1222,22 @@ function renderEye(eye, index) {
     </g>
     ${renderEyeLidStrokes(eye)}
     ${renderEyeLashes(eye)}
+  `;
+}
+
+function renderEyeScar(scar) {
+  if (!scar?.points?.length) {
+    return "";
+  }
+
+  return `
+    <path
+      class="eye-scar"
+      data-screen-side="${scar.screenSide}"
+      d="${renderPointPath(scar.points)} Z"
+      fill="${scar.fill}"
+      stroke="none"
+    />
   `;
 }
 

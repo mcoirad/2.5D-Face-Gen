@@ -258,6 +258,15 @@ test("cowl geometry remains finite and simple across pose and control extremes",
           assertValidPolygon(section.envelope.points, `envelope ${index} at ${yaw},${pitch},${sign}`);
           if (section.crest) assertValidPolygon(section.crest.points, `crest ${index} at ${yaw},${pitch},${sign}`);
           if (section.underside) assertValidPolygon(section.underside.points, `underside ${index} at ${yaw},${pitch},${sign}`);
+          section.silhouettePatches.forEach((patch, patchIndex) => {
+            assertValidPolygon(patch.base.points, `cap base ${index}:${patchIndex} at ${yaw},${pitch},${sign}`);
+            patch.crests.forEach((crest, overlayIndex) => {
+              assertValidPolygon(crest.points, `cap crest ${index}:${patchIndex}:${overlayIndex} at ${yaw},${pitch},${sign}`);
+            });
+            patch.undersides.forEach((underside, overlayIndex) => {
+              assertValidPolygon(underside.points, `cap underside ${index}:${patchIndex}:${overlayIndex} at ${yaw},${pitch},${sign}`);
+            });
+          });
           section.crease?.points.forEach(point => {
             assert.ok(Number.isFinite(point.x));
             assert.ok(Number.isFinite(point.y));
@@ -277,6 +286,88 @@ test("cowl projection changes continuously for small yaw increments", () => {
   for (const key of ["minX", "maxX", "minY", "maxY"]) {
     assert.ok(Math.abs(beforeBounds[key] - afterBounds[key]) < 4, `${key} should move continuously`);
   }
+});
+
+test("skinny rotated folds use continuous open edges and one silhouette cap per side", () => {
+  const rig = solve({
+    showCloak: true,
+    yaw: 0.64,
+    pitch: 0.03,
+    torsoWidth: 219,
+    shoulderRadius: 40,
+    shoulderGap: 33,
+    cloakFoldCount: 3,
+    cloakFoldScale: 1.11,
+    cloakFoldWidth: 22,
+    cloakFoldDepth: 15,
+    cloakFoldSag: 4,
+    cloakFoldOverhang: 0.56,
+    cloakFoldSweep: 30,
+    cloakFoldIrregularity: 1,
+    cloakShoulderDrape: 20,
+    cloakFrontOverlap: 0.02,
+    cloakAsymmetry: -0.03,
+    showArmor: false
+  });
+  const outlines = [...rig.cloak.outlines.back, ...rig.cloak.outlines.front];
+  const silhouetteCaps = outlines.filter(outline => outline.kind === "silhouette-cap");
+  const svg = renderFaceSvg(rig);
+  const outlineElements = [...svg.matchAll(
+    /<path\s+class="cloak-envelope-outline[\s\S]*?\/>/g
+  )].map(match => match[0]);
+
+  assert.ok(
+    outlines.length < rig.cloak.sections.length / 2,
+    "depth cells should share a much smaller set of outline paths"
+  );
+  assert.equal(silhouetteCaps.length, 6, "each fold side should have one rounded facing cap");
+  assert.ok(silhouetteCaps.every(cap => cap.points.length === 9));
+  outlines.flatMap(outline => outline.points).forEach(point => {
+    assert.ok(Number.isFinite(point.x));
+    assert.ok(Number.isFinite(point.y));
+    assert.ok(Number.isFinite(point.depth));
+  });
+  assert.equal(outlineElements.length, outlines.length);
+  assert.ok(outlineElements.every(element => !/\sd="[^"]*\bZ\b/.test(element)));
+  assert.match(svg, /class="cloak-envelope-outline cloak-silhouette-cap/);
+});
+
+test("rounded silhouette caps carry base fabric and underside fill into the outline", () => {
+  const rig = solve({
+    showCloak: true,
+    yaw: 0.41,
+    pitch: 0.03,
+    torsoWidth: 219,
+    shoulderRadius: 40,
+    shoulderGap: 33,
+    cloakFoldCount: 3,
+    cloakFoldScale: 1.11,
+    cloakFoldWidth: 22,
+    cloakFoldDepth: 15,
+    cloakFoldSag: 4,
+    cloakFoldOverhang: 0.56,
+    cloakFoldSweep: 30,
+    cloakFoldIrregularity: 1,
+    cloakShoulderDrape: 20,
+    cloakFrontOverlap: 0.02,
+    cloakAsymmetry: -0.03,
+    showArmor: false
+  });
+  const capOutlines = [...rig.cloak.outlines.back, ...rig.cloak.outlines.front]
+    .filter(outline => outline.kind === "silhouette-cap");
+  const capPatches = rig.cloak.sections.flatMap(section => section.silhouettePatches);
+  const svg = renderFaceSvg(rig);
+
+  assert.equal(capPatches.length, capOutlines.length);
+  assert.ok(capPatches.every(patch => patch.base && patch.undersides.length > 0));
+  for (const outline of capOutlines) {
+    assert.ok(capPatches.some(patch => (
+      patch.base.points.length === outline.points.length
+      && patch.base.points.every((point, index) => pointsNearlyEqual(point, outline.points[index]))
+    )), `cap ${outline.id} should be backed by the same filled polygon`);
+  }
+  assert.match(svg, /class="cloak-silhouette-fill"/);
+  assert.match(svg, /class="cloak-silhouette-underside"/);
 });
 
 test("SVG renders rear cowl, armor, front folds, shading, and creases in order", () => {

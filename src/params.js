@@ -210,6 +210,9 @@ export const defaultParams = {
   eyeIrisSize: 11,
   eyePupilSize: 5,
   eyeIrisColor: "#5b4433",
+  showEyeScar: false,
+  eyeScarSide: "left",
+  eyeScarIrisColor: "#4f718c",
   eyeIrisGradient: true,
   eyeShine: true,
   eyeShineSize: 0.35,
@@ -461,6 +464,10 @@ export const sliderConfig = {
 
 export const selectConfig = {
   hairV2LengthPreset: HAIR_V2_LENGTH_PRESET_OPTIONS,
+  eyeScarSide: [
+    ["left", "Screen Left"],
+    ["right", "Screen Right"]
+  ],
   ferronniereBandStyle: [
     ["single", "Single cord"],
     ["double", "Double-line chain"]
@@ -502,6 +509,7 @@ export const colorConfig = {
   ferronniereMetalColor: true,
   ferronniereGemColor: true,
   eyeIrisColor: true,
+  eyeScarIrisColor: true,
   mouthCavityColor: true,
   bodyColor: true,
   clothingColor: true,
@@ -552,6 +560,7 @@ export const toggleConfig = {
   showSoulPatch: true,
   showBeard: true,
   eyeIrisGradient: true,
+  showEyeScar: true,
   eyeShine: true,
   showUpperLashes: true,
   showLowerLashes: true,

@@ -47,6 +47,8 @@ export function solveCloak(params, pose, source) {
       const runs = splitRuns(samples);
 
       for (const [runIndex, run] of runs.entries()) {
+        const previousRun = runs[runIndex - 1];
+        const nextRun = runs[runIndex + 1];
         const section = makeSection({
           source,
           samples: run.samples,
@@ -57,7 +59,9 @@ export function solveCloak(params, pose, source) {
           runIndex,
           layer: run.layer,
           frontFlap: run.frontFlap,
-          topFlap: run.frontFlap && side === topSide
+          topFlap: run.frontFlap && side === topSide,
+          silhouetteStart: run.layer === "front" && previousRun?.layer === "back",
+          silhouetteEnd: run.layer === "front" && nextRun?.layer === "back"
         });
 
         if (section) sections.push(section);
@@ -65,9 +69,20 @@ export function solveCloak(params, pose, source) {
     }
   }
 
+  const outlines = makeContinuousLines(sections, "outline", colors.outline);
+  const creases = makeContinuousLines(sections, "crease", colors.outline);
+
   return {
     back: sections.filter(section => section.layer === "back"),
     front: sections.filter(section => section.layer === "front"),
+    outlines: {
+      back: outlines.filter(outline => outline.layer === "back"),
+      front: outlines.filter(outline => outline.layer === "front")
+    },
+    creases: {
+      back: creases.filter(crease => crease.layer === "back"),
+      front: creases.filter(crease => crease.layer === "front")
+    },
     sections,
     settings,
     colors
@@ -235,13 +250,25 @@ function makeSection({
   runIndex,
   layer,
   frontFlap,
-  topFlap
+  topFlap,
+  silhouetteStart,
+  silhouetteEnd
 }) {
   const closesAtFront = samples.at(-1).u >= 1 - GEOMETRY_EPSILON;
   const upper = samples.map(sample => projectModel(source, sample.rows.upper));
   const lower = samples.map(sample => projectModel(source, sample.rows.lower));
-  const cap = closesAtFront ? makeRoundedCap(source, samples, settings) : [];
-  const envelopePoints = normalizePolygon([...upper, ...cap, ...[...lower].reverse()]);
+  const startSilhouetteCap = silhouetteStart
+    ? makeSilhouetteCap(source, samples, settings, true)
+    : [];
+  const endSilhouetteCap = silhouetteEnd
+    ? makeSilhouetteCap(source, samples, settings, false)
+    : [];
+  const frontCap = closesAtFront ? makeRoundedCap(source, samples, settings) : [];
+  const envelopePoints = normalizePolygon([
+    ...upper,
+    ...frontCap,
+    ...[...lower].reverse()
+  ]);
 
   if (!validPolygon(envelopePoints)) return null;
 
@@ -263,21 +290,58 @@ function makeSection({
   );
   const crease = normalizeLine(samples.map(sample => projectModel(source, sample.rows.crease)));
   const id = `cloak-fold-${bandIndex}-${side < 0 ? "left" : "right"}-${layer}-${runIndex}`;
+  const silhouettePatches = [
+    startSilhouetteCap.length
+      ? makeSilhouettePatches({
+          source,
+          samples,
+          settings,
+          colors,
+          atStart: true,
+          capPoints: [lower[0], ...startSilhouetteCap, upper[0]]
+        })
+      : null,
+    endSilhouetteCap.length
+      ? makeSilhouettePatches({
+          source,
+          samples,
+          settings,
+          colors,
+          atStart: false,
+          capPoints: [upper.at(-1), ...endSilhouetteCap, lower.at(-1)]
+        })
+      : null
+  ].filter(Boolean);
 
   return {
     id,
     layer,
     side,
     bandIndex,
+    runIndex,
     frontFlap,
     topFlap,
     depth: averageDepth(envelopePoints),
     envelope: { id: `${id}-envelope`, points: envelopePoints, fill: colors.base },
     crest,
     underside,
+    silhouettePatches,
     crease: crease.length >= 2
       ? { id: `${id}-crease`, points: crease, stroke: colors.outline, width: 2 }
       : null,
+    edges: {
+      upper,
+      lower,
+      startCap: startSilhouetteCap.length
+        ? [lower[0], ...startSilhouetteCap, upper[0]]
+        : null,
+      endCap: frontCap.length
+        ? [upper.at(-1), ...frontCap, lower.at(-1)]
+        : endSilhouetteCap.length
+          ? [upper.at(-1), ...endSilhouetteCap, lower.at(-1)]
+          : null,
+      endCapKind: frontCap.length ? "front-cap" : "silhouette-cap"
+    },
     seamStart: {
       upper: upper[0],
       lower: lower[0]
@@ -287,6 +351,172 @@ function makeSection({
       lower: lower.at(-1)
     }
   };
+}
+
+function makeSilhouettePatches({
+  source,
+  samples,
+  settings,
+  colors,
+  atStart,
+  capPoints
+}) {
+  const sample = atStart ? samples[0] : samples.at(-1);
+  const crestTopQ = taperedOverlayQ(CREST_TOP_Q, CREST_BOTTOM_Q, sample.u);
+  const crestBottomQ = taperedOverlayQ(CREST_BOTTOM_Q, CREST_TOP_Q, sample.u);
+  const shadowTopQ = taperedOverlayQ(CREST_BOTTOM_Q, LOWER_EDGE_Q, sample.u);
+  const shadowBottomQ = taperedOverlayQ(LOWER_EDGE_Q, CREST_BOTTOM_Q, sample.u);
+
+  return {
+    base: makeProjectedPatch(capPoints, colors.base),
+    crests: settings.showShine
+      ? makeSilhouetteOverlay(
+          source,
+          samples,
+          settings,
+          atStart,
+          crestTopQ,
+          crestBottomQ,
+          colors.crest
+        )
+      : [],
+    undersides: makeSilhouetteOverlay(
+      source,
+      samples,
+      settings,
+      atStart,
+      shadowTopQ,
+      shadowBottomQ,
+      colors.underside
+    )
+  };
+}
+
+function makeSilhouetteOverlay(
+  source,
+  samples,
+  settings,
+  atStart,
+  upperQ,
+  lowerQ,
+  fill
+) {
+  if (lowerQ - upperQ <= GEOMETRY_EPSILON) return [];
+
+  const sample = atStart ? samples[0] : samples.at(-1);
+  const orderedStartQ = atStart ? lowerQ : upperQ;
+  const orderedEndQ = atStart ? upperQ : lowerQ;
+  const qValues = Array.from({ length: 7 }, (_, index) => {
+    const amount = index / 6;
+    return lerp(orderedStartQ, orderedEndQ, amount);
+  });
+
+  return Array.from({ length: qValues.length - 1 }, (_, index) => {
+    const firstQ = qValues[index];
+    const secondQ = qValues[index + 1];
+    const seamFirst = projectModel(source, crossSectionPoint(sample, firstQ, settings));
+    const seamSecond = projectModel(source, crossSectionPoint(sample, secondQ, settings));
+    const capFirst = makeSilhouetteCapPoint(source, samples, settings, atStart, firstQ);
+    const capSecond = makeSilhouetteCapPoint(source, samples, settings, atStart, secondQ);
+
+    return makeProjectedPatch([seamFirst, capFirst, capSecond, seamSecond], fill);
+  }).filter(Boolean);
+}
+
+function makeProjectedPatch(points, fill) {
+  const normalized = normalizePolygon(points);
+  return validPolygon(normalized) ? { points: normalized, fill } : null;
+}
+
+function makeContinuousLines(sections, kind, stroke) {
+  const groups = [];
+  const sorted = [...sections].sort((first, second) => (
+    first.bandIndex - second.bandIndex
+    || first.side - second.side
+    || first.runIndex - second.runIndex
+  ));
+
+  for (const section of sorted) {
+    const previousGroup = groups.at(-1);
+    const previousSection = previousGroup?.sections.at(-1);
+    const continuesGroup = previousSection
+      && previousSection.bandIndex === section.bandIndex
+      && previousSection.side === section.side
+      && previousSection.layer === section.layer
+      && previousSection.runIndex + 1 === section.runIndex;
+
+    if (continuesGroup) {
+      previousGroup.sections.push(section);
+    } else {
+      groups.push({ sections: [section] });
+    }
+  }
+
+  return groups.flatMap(({ sections: groupSections }, groupIndex) => {
+    const first = groupSections[0];
+    const last = groupSections.at(-1);
+    const prefix = `cloak-fold-${first.bandIndex}-${first.side < 0 ? "left" : "right"}-${first.layer}-${kind}-${groupIndex}`;
+    const common = {
+      layer: first.layer,
+      side: first.side,
+      bandIndex: first.bandIndex,
+      topFlap: groupSections.some(section => section.topFlap),
+      frontFlap: groupSections.some(section => section.frontFlap),
+      stroke
+    };
+
+    if (kind === "crease") {
+      const points = joinSectionLines(groupSections, section => section.crease?.points);
+      return points.length >= 2
+        ? [{
+            ...common,
+            id: prefix,
+            points,
+            width: 2,
+            depth: averageDepth(points)
+          }]
+        : [];
+    }
+
+    const upper = joinSectionLines(groupSections, section => section.edges.upper);
+    const lower = joinSectionLines(groupSections, section => section.edges.lower);
+    const paths = [
+      { id: `${prefix}-upper`, kind: "upper", points: upper },
+      { id: `${prefix}-lower`, kind: "lower", points: lower }
+    ];
+    if (first.edges.startCap) {
+      paths.push({ id: `${prefix}-start-cap`, kind: "silhouette-cap", points: first.edges.startCap });
+    }
+    if (last.edges.endCap) {
+      paths.push({
+        id: `${prefix}-end-cap`,
+        kind: last.edges.endCapKind,
+        points: last.edges.endCap
+      });
+    }
+
+    return paths
+      .filter(path => path.points.length >= 2)
+      .map(path => ({
+        ...common,
+        ...path,
+        width: 8,
+        depth: averageDepth(path.points)
+      }));
+  });
+}
+
+function joinSectionLines(sections, selectPoints) {
+  const points = [];
+  for (const section of sections) {
+    const selected = selectPoints(section) ?? [];
+    for (const point of selected) {
+      if (!points.length || distance2(points.at(-1), point) > GEOMETRY_EPSILON) {
+        points.push(point);
+      }
+    }
+  }
+  return points;
 }
 
 function makePatch(source, samples, firstRow, secondRow, fill) {
@@ -310,6 +540,27 @@ function makeRoundedCap(source, samples, settings) {
     const capAmount = Math.sin(angle) * settings.foldWidth * settings.foldScale * 0.35;
     return projectModel(source, add3(point, scale3(tangent, capAmount)));
   });
+}
+
+function makeSilhouetteCap(source, samples, settings, atStart) {
+  const qValues = atStart
+    ? [0.75, 0.5, 0.25, 0, -0.25, -0.5, -0.75]
+    : [-0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75];
+
+  return qValues.map(q => makeSilhouetteCapPoint(source, samples, settings, atStart, q));
+}
+
+function makeSilhouetteCapPoint(source, samples, settings, atStart, q) {
+  const sample = atStart ? samples[0] : samples.at(-1);
+  const neighbor = atStart ? samples[1] : samples.at(-2);
+  const tangent = normalize3(atStart
+    ? subtract3(neighbor.center, sample.center)
+    : subtract3(sample.center, neighbor.center));
+  const outwardSign = atStart ? 1 : -1;
+  const point = crossSectionPoint(sample, q, settings);
+  const capAmount = Math.cos(q * Math.PI / 2)
+    * settings.foldDepth * settings.foldScale * 0.35 * outwardSign;
+  return projectModel(source, add3(point, scale3(tangent, capAmount)));
 }
 
 function projectModel(source, point) {

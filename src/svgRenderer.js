@@ -29,6 +29,7 @@ export function renderFaceSvg(rig) {
       ${renderFacialHair(rig.facialHair, "back")}
       ${renderHead(headPathD, rig.skinColor)}
       ${renderEyeShading(rig.features.eyeShading, headPathD)}
+      ${renderFaceScar(rig.features.faceScar, headPathD)}
       ${renderFerronniere(rig.ferronniere, "front")}
       ${renderEars(rig.ears, "front")}
       ${rig.showGuides ? renderGuides(rig.head.guides) : ""}
@@ -1180,6 +1181,31 @@ function renderEyeShadingBridgePath(shape) {
     `Q ${shape.topControl.x} ${shape.topControl.y} ${shape.topInner.x} ${shape.topInner.y}`,
     "Z"
   ].join(" ");
+}
+
+function renderFaceScar(scar, headPathD) {
+  if (!scar?.cycles?.length) {
+    return "";
+  }
+
+  return `
+    <defs>
+      <clipPath id="face-scar-head-clip">
+        <path d="${headPathD}" />
+      </clipPath>
+    </defs>
+    <g class="face-scar-layer" clip-path="url(#face-scar-head-clip)">
+      ${scar.cycles.map((points, index) => `
+        <path
+          class="face-scar"
+          data-face-scar-cycle="${index}"
+          d="${renderPointPath(points)} Z"
+          fill="${scar.fill}"
+          stroke="none"
+        />
+      `).join("")}
+    </g>
+  `;
 }
 
 function renderEye(eye, index) {

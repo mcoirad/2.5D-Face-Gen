@@ -154,7 +154,7 @@ test("scar geometry is a finite simple tapered vertical polygon", () => {
 
 test("scar width follows iris radius and clamps to two through four pixels", () => {
   const narrow = selectedEye(solve({ showEyeScar: true, eyeIrisSize: 4 }));
-  const middle = selectedEye(solve({ showEyeScar: true, eyeIrisSize: 11 }));
+  const middle = selectedEye(solve({ showEyeScar: true, eyeIrisSize: 6 }));
   const wide = selectedEye(solve({ showEyeScar: true, eyeIrisSize: 20 }));
 
   assert.equal(narrow.scar.width, 2);

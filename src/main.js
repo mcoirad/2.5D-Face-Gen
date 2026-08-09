@@ -191,9 +191,6 @@ const controlGroups = [
       "eyeIrisSize",
       "eyePupilSize",
       "eyeIrisColor",
-      "showEyeScar",
-      "eyeScarSide",
-      "eyeScarIrisColor",
       "eyeIrisGradient",
       "eyeShine",
       "eyeShineSize",
@@ -229,6 +226,21 @@ const controlGroups = [
     title: "Shading",
     keys: ["showEyeShading", "showBaggyEyeShading"],
     open: true
+  },
+  {
+    title: "Details",
+    keys: [
+      "showEyeScar",
+      "eyeScarSide",
+      "eyeScarIrisColor",
+      "showFaceScar",
+      "faceScarCenterX",
+      "faceScarCenterY",
+      "faceScarAngle",
+      "faceScarLength",
+      "faceScarWidth"
+    ],
+    open: false
   },
   {
     title: "Nose",

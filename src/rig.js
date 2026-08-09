@@ -25,8 +25,11 @@ const EYE_BAG_FIRST_CONTROL_OUT = 0.157;
 const EYE_BAG_FIRST_CONTROL_DOWN = 0.286;
 const EYE_BAG_SECOND_CONTROL_OUT = 0.482;
 const EYE_BAG_SECOND_CONTROL_DOWN = 0.406;
-const EYE_SCAR_COLOR = "#777777";
+const SCAR_COLOR = "#777777";
 const EYE_SCAR_IRIS_COLOR = "#4f718c";
+const FACE_SCAR_SAMPLE_COUNT = 24;
+const FACE_SCAR_DEFAULT_CENTER_Y = 55;
+const FACE_SCAR_NOSE_GAP = 15;
 const DEFAULT_SKIN_COLOR = "#f6f1e8";
 const DEFAULTS = {
   lowerFaceWidth: 145,
@@ -1454,6 +1457,7 @@ function solveFeatures(params, pose, structure) {
     leftNostril: nostrils.visible,
     rightNostril: nostrils.hidden
   };
+  const faceScar = makeFaceScar(params, pose, nose.bridge);
   const featureVisibility = solveFeatureVisibilityFromNose(pose, eyes, nose.tip);
   eyes.forEach((eye, index) => {
     eye.visible = featureVisibility[index];
@@ -1497,6 +1501,7 @@ function solveFeatures(params, pose, structure) {
     eyes,
     brows,
     eyeShading,
+    faceScar,
     nose,
     mouth,
     moustache,
@@ -3980,6 +3985,112 @@ function makeReferenceEye(project, skull, poseSignValue, referenceEye, scale, pa
   };
 }
 
+function makeFaceScar(params, pose, noseBridge) {
+  if (!params.showFaceScar) {
+    return null;
+  }
+
+  const requestedWidth = clamp(params.faceScarWidth, 1, 16);
+  const anchor = makeFaceScarAnchor(params, pose, noseBridge);
+  const attempts = [
+    { widthScale: 1, irregularity: 1 },
+    { widthScale: 0.75, irregularity: 0.55 },
+    { widthScale: 0.5, irregularity: 0.2 },
+    { widthScale: 0.25, irregularity: 0 }
+  ];
+
+  for (const attempt of attempts) {
+    const cycles = buildFaceScarCycles(
+      params,
+      anchor,
+      requestedWidth * attempt.widthScale,
+      attempt.irregularity
+    );
+    if (cycles.length && cycles.every(isValidFaceScarCycle)) {
+      return {
+        cycles,
+        fill: SCAR_COLOR,
+        sampleCount: FACE_SCAR_SAMPLE_COUNT,
+        anchor,
+        requestedWidth,
+        resolvedWidth: requestedWidth * attempt.widthScale
+      };
+    }
+  }
+
+  return {
+    cycles: [],
+    fill: SCAR_COLOR,
+    sampleCount: FACE_SCAR_SAMPLE_COUNT,
+    anchor,
+    requestedWidth,
+    resolvedWidth: 0
+  };
+}
+
+function makeFaceScarAnchor(params, pose, noseBridge) {
+  const yawScale = Math.cos(pose.yaw * Math.PI / 2);
+  const pitchScale = Math.cos(params.pitch);
+
+  return {
+    x: noseBridge.x + clamp(params.faceScarCenterX, -100, 100) * yawScale,
+    y: noseBridge.y + (
+      clamp(params.faceScarCenterY, -80, 150)
+      - FACE_SCAR_DEFAULT_CENTER_Y
+      - FACE_SCAR_NOSE_GAP
+    ) * pitchScale
+  };
+}
+
+function buildFaceScarCycles(params, anchor, width, irregularity) {
+  const angle = clamp(params.faceScarAngle, -90, 90) * Math.PI / 180;
+  const length = clamp(params.faceScarLength, 20, 260);
+  const tangent = { x: Math.cos(angle), y: Math.sin(angle) };
+  const normal = { x: -tangent.y, y: tangent.x };
+  const sections = Array.from({ length: FACE_SCAR_SAMPLE_COUNT }, (_, index) => {
+    const amount = index / (FACE_SCAR_SAMPLE_COUNT - 1);
+    const distance = (amount - 0.5) * length;
+    const endDistance = Math.min(amount, 1 - amount) * (FACE_SCAR_SAMPLE_COUNT - 1);
+    const endpointScale = lerp(0.4, 1, smoothstep(0, 2, endDistance));
+    const centerVariation = Math.sin(index * 2.17 + 0.45)
+      * Math.sin(Math.PI * amount)
+      * width
+      * 0.12
+      * irregularity;
+    const widthVariation = 1 + Math.sin(index * 1.73 + 1.1) * 0.12 * irregularity;
+    const halfWidth = width * endpointScale * widthVariation / 2;
+    const center = {
+      x: anchor.x + tangent.x * distance + normal.x * centerVariation,
+      y: anchor.y + tangent.y * distance + normal.y * centerVariation
+    };
+
+    return {
+      left: {
+        x: center.x + normal.x * halfWidth,
+        y: center.y + normal.y * halfWidth
+      },
+      right: {
+        x: center.x - normal.x * halfWidth,
+        y: center.y - normal.y * halfWidth
+      }
+    };
+  });
+  const raw = normalizeUnionPolygon([
+    ...sections.map(section => section.left),
+    ...sections.slice().reverse().map(section => section.right)
+  ]);
+  const resolved = polygonSelfIntersects(raw) ? trimOffsetCrossingLoops(raw) : raw;
+
+  return resolved?.length >= 4 ? [resolved] : [];
+}
+
+function isValidFaceScarCycle(points) {
+  return points.length >= 4
+    && points.every(point => Number.isFinite(point.x) && Number.isFinite(point.y))
+    && Math.abs(polygonSignedArea(points)) > POLYGON_UNION_EPSILON
+    && !polygonSelfIntersects(points);
+}
+
 function applyEyeScar(params, eyes) {
   if (!params.showEyeScar || eyes.length < 2) {
     return;
@@ -4040,7 +4151,7 @@ function makeEyeScar(eye, screenSide) {
 
   return {
     points,
-    fill: EYE_SCAR_COLOR,
+    fill: SCAR_COLOR,
     screenSide,
     width,
     eyelidMinY: minY,

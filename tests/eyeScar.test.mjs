@@ -182,7 +182,7 @@ test("invalid override colors fall back and iris gradients derive from the selec
   assert.match(svg, new RegExp(`id="iris-grad-${selectedIndex}"[\\s\\S]*?<stop offset="1" stop-color="#123456"`));
 });
 
-test("the filled scar renders beneath the eyeball and survives stroke removal", () => {
+test("the filled scar is face-clipped beneath hair, eye details, and stroke removal", () => {
   const rig = solve({
     showEyeScar: true,
     showEyeCorner: true,
@@ -192,10 +192,16 @@ test("the filled scar renders beneath the eyeball and survives stroke removal", 
   const svg = renderFaceSvg(rig);
   const scarIndex = svg.indexOf('class="eye-scar"');
   const eyeFillIndex = svg.indexOf('fill="white"', scarIndex);
+  const noseIndex = svg.indexOf('class="nose-near-nostril-segment"');
   const cornerPath = `M ${target.cornerMakeup.baseTopLeft.x} ${target.cornerMakeup.baseTopLeft.y}`;
+  const headPath = svg.match(/class="head-shape"\s+d="([^"]+)"/)[1].trim();
+  const scarClipPath = svg.match(/id="eye-scar-head-clip">\s*<path d="([^"]+)"/)[1].trim();
 
-  assert.ok(svg.indexOf(cornerPath) < scarIndex);
+  assert.equal(scarClipPath, headPath);
+  assert.ok(scarIndex < noseIndex, "skin scar should render before facial features and front hair");
+  assert.ok(scarIndex < svg.indexOf(cornerPath));
   assert.ok(scarIndex < eyeFillIndex);
+  assert.match(svg, /class="eye-scar-layer" clip-path="url\(#eye-scar-head-clip\)"/);
   assert.match(svg, /class="eye-scar"[\s\S]*?fill="#777777"[\s\S]*?stroke="none"/);
   assert.doesNotMatch(svg, /<line[^>]*class="eye-scar"/);
   assert.match(svg, /\*:not\(\.preserve-material-stroke\)/);

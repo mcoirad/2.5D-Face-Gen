@@ -297,9 +297,10 @@ test("SVG clips the fill to the exact head path and preserves facial layer order
   assert.equal(clipPath, headPath);
   assert.ok(headIndex < shadingIndex);
   assert.ok(shadingIndex < faceScarIndex);
+  assert.ok(faceScarIndex < eyeScarIndex);
+  assert.ok(eyeScarIndex < noseIndex);
   assert.ok(faceScarIndex < noseIndex);
   assert.ok(noseIndex < eyeIndex);
-  assert.ok(eyeIndex < eyeScarIndex);
   assert.match(svg, /class="face-scar"[\s\S]*?fill="#777777"[\s\S]*?stroke="none"/);
   assert.match(svg, /\*:not\(\.preserve-material-stroke\)/);
 });

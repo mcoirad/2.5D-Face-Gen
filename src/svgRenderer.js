@@ -30,6 +30,7 @@ export function renderFaceSvg(rig) {
       ${renderHead(headPathD, rig.skinColor)}
       ${renderEyeShading(rig.features.eyeShading, headPathD)}
       ${renderFaceScar(rig.features.faceScar, headPathD)}
+      ${renderEyeScars(rig.features.eyes, headPathD)}
       ${renderFerronniere(rig.ferronniere, "front")}
       ${renderEars(rig.ears, "front")}
       ${rig.showGuides ? renderGuides(rig.head.guides) : ""}
@@ -1208,6 +1209,27 @@ function renderFaceScar(scar, headPathD) {
   `;
 }
 
+function renderEyeScars(eyes, headPathD) {
+  const scars = (eyes ?? [])
+    .filter(eye => eye.visible && eye.scar)
+    .map(eye => eye.scar);
+
+  if (!scars.length) {
+    return "";
+  }
+
+  return `
+    <defs>
+      <clipPath id="eye-scar-head-clip">
+        <path d="${headPathD}" />
+      </clipPath>
+    </defs>
+    <g class="eye-scar-layer" clip-path="url(#eye-scar-head-clip)">
+      ${scars.map(renderEyeScar).join("")}
+    </g>
+  `;
+}
+
 function renderEye(eye, index) {
   if (!eye.visible) {
     return "";
@@ -1235,7 +1257,6 @@ function renderEye(eye, index) {
       </radialGradient>` : ""}
     </defs>
     ${renderEyeCornerMakeup(eye.cornerMakeup)}
-    ${renderEyeScar(eye.scar)}
     <path
       d="${path}"
       fill="white"

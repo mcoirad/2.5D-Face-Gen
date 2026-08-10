@@ -1557,23 +1557,15 @@ function solveFeatures(params, pose, structure) {
   const noseRawBridgeOffset = (params.noseLength - DEFAULTS.noseLength) * NOSE_LENGTH_RATE;
   const noseBridgeOffset = Math.max(noseRawBridgeOffset, NOSE_MIN_GAP_MARGIN - noseMinGapAbs);
   const noseBase = noseWidthRef(reference.nose.base);
-  const bridgeModel = makeReferenceModelPoint(structure.skull, pose.sign, reference.nose.bridge, 55, eyeYOffset * 0.55 + params.noseY - noseBridgeOffset);
-  const tipModel = makeReferenceModelPoint(structure.skull, pose.sign, noseProtrusionRef(reference.nose.tip), 75, params.noseY);
-  const bridge = projectModelPoint(projectStructure, bridgeModel);
-  const tip = projectModelPoint(projectStructure, tipModel);
   const nostrils = makeNostrils(projectStructure, structure.skull, pose, noseBase, params.noseY, params.noseWidth);
   const nostrilCurves = params.showNostrilCurves
     ? makeNostrilCurves(nostrils, structure.skull, params.nostrilCurveScale, pose.amount)
     : null;
-  const nostrilArcs = makeNostrilArcs(tip, nostrils, params.noseRoundedness);
   const nose = {
-    bridge,
-    bridgeControl: makeNoseBridgeControl(projectStructure, bridgeModel, tipModel, pose, params.noseRoundedness),
-    tip,
+    bridge: projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.bridge, 55, eyeYOffset * 0.55 + params.noseY - noseBridgeOffset),
+    tip: projectReferencePoint(projectStructure, structure.skull, pose.sign, noseProtrusionRef(reference.nose.tip), 75, params.noseY),
     leftNostril: nostrils.visible,
     rightNostril: nostrils.hidden,
-    leftNostrilArc: nostrilArcs.visible,
-    rightNostrilArc: nostrilArcs.hidden,
     leftNostrilCurve: nostrilCurves?.visible ?? null,
     rightNostrilCurve: nostrilCurves?.hidden ?? null
   };
@@ -4567,70 +4559,6 @@ function makeNostrils(project, skull, pose, referenceBase, yOffset, widthScale =
   };
 }
 
-function makeNoseBridgeControl(project, bridge, tip, pose, requestedRoundedness) {
-  const roundedness = Number.isFinite(requestedRoundedness) ? clamp(requestedRoundedness, -1, 1) : 0;
-  if (Math.abs(roundedness) <= 1e-9) return null;
-  const chord = { x: tip.x - bridge.x, y: tip.y - bridge.y, z: tip.z - bridge.z };
-  const chordLength = Math.hypot(chord.x, chord.y, chord.z);
-  if (!Number.isFinite(chordLength) || chordLength <= 1e-9) return null;
-  const chordUnit = { x: chord.x / chordLength, y: chord.y / chordLength, z: chord.z / chordLength };
-  const yawAngle = pose.yaw * Math.PI / 2;
-  const faceDepth = { x: -Math.sin(yawAngle), y: 0, z: Math.cos(yawAngle) };
-  const alongChord = faceDepth.x * chordUnit.x + faceDepth.y * chordUnit.y + faceDepth.z * chordUnit.z;
-  const normal = {
-    x: faceDepth.x - chordUnit.x * alongChord,
-    y: faceDepth.y - chordUnit.y * alongChord,
-    z: faceDepth.z - chordUnit.z * alongChord
-  };
-  const normalLength = Math.hypot(normal.x, normal.y, normal.z);
-  if (!Number.isFinite(normalLength) || normalLength <= 1e-9) return null;
-  const offset = roundedness * chordLength / normalLength;
-  return project(
-    (bridge.x + tip.x) / 2 + normal.x * offset,
-    (bridge.y + tip.y) / 2 + normal.y * offset,
-    (bridge.z + tip.z) / 2 + normal.z * offset
-  );
-}
-
-function makeNostrilArcs(tip, nostrils, requestedRoundedness) {
-  const roundedness = Number.isFinite(requestedRoundedness) ? clamp(requestedRoundedness, -1, 1) : 0;
-  if (roundedness <= 1e-9) return { visible: null, hidden: null };
-  const centroid = {
-    x: (tip.x + nostrils.visible.x + nostrils.hidden.x) / 3,
-    y: (tip.y + nostrils.visible.y + nostrils.hidden.y) / 3
-  };
-  const angle = roundedness * Math.PI;
-  const halfAngleSine = Math.sin(angle / 2);
-  const makeArc = nostril => {
-    const chord = { x: nostril.x - tip.x, y: nostril.y - tip.y };
-    const chordLength = Math.hypot(chord.x, chord.y);
-    if (!Number.isFinite(chordLength) || chordLength <= 1e-9 || halfAngleSine <= 1e-9) return null;
-    const chordMidpoint = { x: (tip.x + nostril.x) / 2, y: (tip.y + nostril.y) / 2 };
-    let outwardNormal = { x: -chord.y / chordLength, y: chord.x / chordLength };
-    const away = { x: chordMidpoint.x - centroid.x, y: chordMidpoint.y - centroid.y };
-    let sweep = 0;
-    if (outwardNormal.x * away.x + outwardNormal.y * away.y < 0) {
-      outwardNormal = { x: -outwardNormal.x, y: -outwardNormal.y };
-      sweep = 1;
-    }
-    const radius = chordLength / (2 * halfAngleSine);
-    const sagitta = chordLength * 0.5 * Math.tan(angle / 4);
-    return {
-      start: tip,
-      end: nostril,
-      angle,
-      radius,
-      sagitta,
-      sweep,
-      apex: {
-        x: chordMidpoint.x + outwardNormal.x * sagitta,
-        y: chordMidpoint.y + outwardNormal.y * sagitta
-      }
-    };
-  };
-  return { visible: makeArc(nostrils.visible), hidden: makeArc(nostrils.hidden) };
-}
-
 function makeNostrilCurves(nostrils, skull, requestedScale, yawAmount) {
   const sliderScale = Number.isFinite(requestedScale) ? clamp(requestedScale, 0.5, 3) : 1;
   const yawScale = lerp(0.75, 1, clamp(yawAmount, 0, 1));
@@ -4664,20 +4592,12 @@ function makeNostrilCurves(nostrils, skull, requestedScale, yawAmount) {
   };
 }
 
-function makeReferenceModelPoint(skull, poseSignValue, referencePoint, z = 0, yOffset = 0) {
-  return {
-    x: poseSignValue * referencePoint[0] * skull.rx,
-    y: skull.cy + referencePoint[1] * skull.ry + yOffset,
-    z
-  };
-}
-
-function projectModelPoint(project, point) {
-  return project(point.x, point.y, point.z);
-}
-
 function projectReferencePoint(project, skull, poseSignValue, referencePoint, z = 0, yOffset = 0) {
-  return projectModelPoint(project, makeReferenceModelPoint(skull, poseSignValue, referencePoint, z, yOffset));
+  return project(
+    poseSignValue * referencePoint[0] * skull.rx,
+    skull.cy + referencePoint[1] * skull.ry + yOffset,
+    z
+  );
 }
 
 function projectMouthPoint(project, skull, poseSignValue, referencePoint, referenceMidpoint, scale, z, yOffset) {

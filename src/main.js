@@ -254,7 +254,6 @@ const controlGroups = [
       "noseY",
       "noseWidth",
       "noseProtrusion",
-      "noseRoundedness",
       "showNostrilCurves",
       "nostrilCurveScale"
     ],

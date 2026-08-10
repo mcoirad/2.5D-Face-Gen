@@ -1437,8 +1437,8 @@ function lightenHex(value, amount) {
 
 function renderNose(nose, yawAmount) {
   const nostrils = [
-    { point: nose.leftNostril, arc: nose.leftNostrilArc, curve: nose.leftNostrilCurve },
-    { point: nose.rightNostril, arc: nose.rightNostrilArc, curve: nose.rightNostrilCurve }
+    { point: nose.leftNostril, curve: nose.leftNostrilCurve },
+    { point: nose.rightNostril, curve: nose.rightNostrilCurve }
   ];
   const farNostrilIndex = Math.abs(nostrils[0].point.x - 250) > Math.abs(nostrils[1].point.x - 250) ? 0 : 1;
   const farNostril = nostrils[farNostrilIndex];
@@ -1449,7 +1449,7 @@ function renderNose(nose, yawAmount) {
       ${showBridgeSegment ? `
     <path
       class="nose-bridge-segment"
-      d="${renderNoseBridgePath(nose)}"
+      d="M ${nose.bridge.x} ${nose.bridge.y} L ${nose.tip.x} ${nose.tip.y}"
       fill="none"
       stroke="black"
       stroke-width="3"
@@ -1457,7 +1457,7 @@ function renderNose(nose, yawAmount) {
     />` : ""}
     <path
       class="nose-near-nostril-segment"
-      d="${renderNoseLowerSegmentPath(nose.tip, nearNostril)}"
+      d="M ${nose.tip.x} ${nose.tip.y} L ${nearNostril.point.x} ${nearNostril.point.y}"
       fill="none"
       stroke="black"
       stroke-width="3"
@@ -1467,7 +1467,7 @@ function renderNose(nose, yawAmount) {
     ${yawAmount <= 0.5 ? `
     <path
       class="nose-far-nostril-segment"
-      d="${renderNoseLowerSegmentPath(nose.tip, farNostril)}"
+      d="M ${nose.tip.x} ${nose.tip.y} L ${farNostril.point.x} ${farNostril.point.y}"
       fill="none"
       stroke="black"
       stroke-width="3"
@@ -1475,18 +1475,6 @@ function renderNose(nose, yawAmount) {
     />
     ${renderNostrilCurve(farNostril.curve, "nose-far-nostril-curve")}` : ""}
   `;
-}
-
-function renderNoseBridgePath(nose) {
-  return nose.bridgeControl
-    ? `M ${nose.bridge.x} ${nose.bridge.y} Q ${nose.bridgeControl.x} ${nose.bridgeControl.y} ${nose.tip.x} ${nose.tip.y}`
-    : `M ${nose.bridge.x} ${nose.bridge.y} L ${nose.tip.x} ${nose.tip.y}`;
-}
-
-function renderNoseLowerSegmentPath(tip, nostril) {
-  return nostril.arc
-    ? `M ${tip.x} ${tip.y} A ${nostril.arc.radius} ${nostril.arc.radius} 0 0 ${nostril.arc.sweep} ${nostril.point.x} ${nostril.point.y}`
-    : `M ${tip.x} ${tip.y} L ${nostril.point.x} ${nostril.point.y}`;
 }
 
 function renderNostrilCurve(curve, className) {

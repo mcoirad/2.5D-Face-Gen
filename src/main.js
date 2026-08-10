@@ -73,6 +73,10 @@ const controlGroups = [
     title: "Body",
     keys: [
       "showBody",
+      "showArms",
+      "armLength",
+      "leftArmRotation",
+      "rightArmRotation",
       "bodyColor",
       "neckLength",
       "neckTopWidth",
@@ -97,6 +101,7 @@ const controlGroups = [
       "showClothing",
       "clothingColor",
       "clothingOffset",
+      "clothingSleeveLength",
       "clothingCollarHeight",
       "clothingCollarOpeningWidth",
       "clothingCollarOpeningDepth",
@@ -249,6 +254,7 @@ const controlGroups = [
       "noseY",
       "noseWidth",
       "noseProtrusion",
+      "noseRoundedness",
       "showNostrilCurves",
       "nostrilCurveScale"
     ],

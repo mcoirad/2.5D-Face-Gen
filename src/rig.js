@@ -817,6 +817,113 @@ function uniqueSortedParameters(values) {
   return unique;
 }
 
+function makeExposedOutlineFragments(points, occluderPolygons) {
+  const occluders = occluderPolygons.filter(polygon => polygon?.length >= 3);
+
+  if (points.length < 2) {
+    return [];
+  }
+
+  if (!occluders.length) {
+    return [{ points, closed: true }];
+  }
+
+  const pieces = [];
+
+  for (let edgeIndex = 0; edgeIndex < points.length; edgeIndex += 1) {
+    const start = points[edgeIndex];
+    const end = points[(edgeIndex + 1) % points.length];
+    const parameters = [0, 1];
+
+    for (const polygon of occluders) {
+      for (let otherIndex = 0; otherIndex < polygon.length; otherIndex += 1) {
+        const otherStart = polygon[otherIndex];
+        const otherEnd = polygon[(otherIndex + 1) % polygon.length];
+        const intersection = segmentIntersectionParameters(start, end, otherStart, otherEnd);
+
+        if (intersection) {
+          parameters.push(intersection.t);
+        } else {
+          for (const point of [otherStart, otherEnd]) {
+            if (pointOnSegment(point, start, end)) {
+              parameters.push(segmentParameterForPoint(point, start, end));
+            }
+          }
+        }
+      }
+    }
+
+    const splits = uniqueSortedParameters(parameters);
+
+    for (let splitIndex = 0; splitIndex < splits.length - 1; splitIndex += 1) {
+      const from = pointAlongSegment(start, end, splits[splitIndex]);
+      const to = pointAlongSegment(start, end, splits[splitIndex + 1]);
+
+      if (pointsNearlyEqual(from, to)) {
+        continue;
+      }
+
+      const midpoint = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+      const hidden = occluders.some(polygon => (
+        pointOnPolygonBoundary(midpoint, polygon) || isPointInPolygon(midpoint, polygon)
+      ));
+      pieces.push({ from, to, hidden });
+    }
+  }
+
+  if (!pieces.length || pieces.every(piece => piece.hidden)) {
+    return [];
+  }
+
+  if (pieces.every(piece => !piece.hidden)) {
+    return [{ points, closed: true }];
+  }
+
+  const firstHidden = pieces.findIndex(piece => piece.hidden);
+  const fragments = [];
+  let current = null;
+
+  for (let offset = 1; offset <= pieces.length; offset += 1) {
+    const piece = pieces[(firstHidden + offset) % pieces.length];
+
+    if (piece.hidden) {
+      if (current) {
+        fragments.push({ points: current, closed: false });
+        current = null;
+      }
+      continue;
+    }
+
+    if (!current || !pointsNearlyEqual(current.at(-1), piece.from)) {
+      if (current) {
+        fragments.push({ points: current, closed: false });
+      }
+      current = [piece.from, piece.to];
+    } else {
+      current.push(piece.to);
+    }
+  }
+
+  if (current) {
+    fragments.push({ points: current, closed: false });
+  }
+
+  return fragments;
+}
+
+function applyReciprocalOutlineTrimming(firstShapes, secondShapes) {
+  const firstPolygons = firstShapes.map(shape => shape.points);
+  const secondPolygons = secondShapes.map(shape => shape.points);
+
+  for (const shape of firstShapes) {
+    shape.outlineFragments = makeExposedOutlineFragments(shape.points, secondPolygons);
+  }
+
+  for (const shape of secondShapes) {
+    shape.outlineFragments = makeExposedOutlineFragments(shape.points, firstPolygons);
+  }
+}
+
 function makeExteriorBoundarySegments(polygon, splitParameters, otherPolygon) {
   const segments = [];
 
@@ -1450,15 +1557,23 @@ function solveFeatures(params, pose, structure) {
   const noseRawBridgeOffset = (params.noseLength - DEFAULTS.noseLength) * NOSE_LENGTH_RATE;
   const noseBridgeOffset = Math.max(noseRawBridgeOffset, NOSE_MIN_GAP_MARGIN - noseMinGapAbs);
   const noseBase = noseWidthRef(reference.nose.base);
+  const bridgeModel = makeReferenceModelPoint(structure.skull, pose.sign, reference.nose.bridge, 55, eyeYOffset * 0.55 + params.noseY - noseBridgeOffset);
+  const tipModel = makeReferenceModelPoint(structure.skull, pose.sign, noseProtrusionRef(reference.nose.tip), 75, params.noseY);
+  const bridge = projectModelPoint(projectStructure, bridgeModel);
+  const tip = projectModelPoint(projectStructure, tipModel);
   const nostrils = makeNostrils(projectStructure, structure.skull, pose, noseBase, params.noseY, params.noseWidth);
   const nostrilCurves = params.showNostrilCurves
     ? makeNostrilCurves(nostrils, structure.skull, params.nostrilCurveScale, pose.amount)
     : null;
+  const nostrilArcs = makeNostrilArcs(tip, nostrils, params.noseRoundedness);
   const nose = {
-    bridge: projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.bridge, 55, eyeYOffset * 0.55 + params.noseY - noseBridgeOffset),
-    tip: projectReferencePoint(projectStructure, structure.skull, pose.sign, noseProtrusionRef(reference.nose.tip), 75, params.noseY),
+    bridge,
+    bridgeControl: makeNoseBridgeControl(projectStructure, bridgeModel, tipModel, pose, params.noseRoundedness),
+    tip,
     leftNostril: nostrils.visible,
     rightNostril: nostrils.hidden,
+    leftNostrilArc: nostrilArcs.visible,
+    rightNostrilArc: nostrilArcs.hidden,
     leftNostrilCurve: nostrilCurves?.visible ?? null,
     rightNostrilCurve: nostrilCurves?.hidden ?? null
   };
@@ -2595,6 +2710,131 @@ function shoulderPolarPoint(shoulder, point) {
 // Shoulders sit directly left/right of the skull's central axis at yaw 0. This
 // is the "at rest" longitude each orbits from as the head yaws.
 const SHOULDER_BASE_ANGLE = Math.PI / 2;
+const ARM_SHOULDER_ARC_SEGMENTS = 16;
+
+function makeHangingArmPoints(shoulder, side, radius, bottomY) {
+  const startsOnLeft = side === "right";
+  const startAngle = startsOnLeft ? Math.PI : 0;
+  const angleDirection = startsOnLeft ? 1 : -1;
+  const points = [];
+
+  for (let sample = 0; sample <= ARM_SHOULDER_ARC_SEGMENTS; sample += 1) {
+    const amount = sample / ARM_SHOULDER_ARC_SEGMENTS;
+    const angle = startAngle + angleDirection * Math.PI * amount;
+
+    points.push({
+      x: shoulder.cx + Math.cos(angle) * radius,
+      y: shoulder.cy + Math.sin(angle) * radius
+    });
+  }
+
+  const outerEquator = points.at(-1);
+  const innerEquator = points[0];
+  points.push(
+    { x: outerEquator.x, y: bottomY },
+    { x: innerEquator.x, y: bottomY }
+  );
+
+  return points;
+}
+
+function armRotationRadians(params, side) {
+  const parameterName = side === "left" ? "leftArmRotation" : "rightArmRotation";
+  const requestedRotation = Number.isFinite(params[parameterName])
+    ? clamp(params[parameterName], -120, 120)
+    : 0;
+  const outwardDirection = side === "left" ? 1 : -1;
+
+  return requestedRotation * outwardDirection * Math.PI / 180;
+}
+
+function rotatePointsAround(points, center, angle) {
+  if (Math.abs(angle) <= POLYGON_UNION_EPSILON) {
+    return points;
+  }
+
+  return points.map(point => {
+    const rotated = rotatePoint({
+      x: point.x - center.cx,
+      y: point.y - center.cy
+    }, angle);
+
+    return {
+      x: center.cx + rotated.x,
+      y: center.cy + rotated.y
+    };
+  });
+}
+
+function solveArms(params, pose, shoulders) {
+  if (!params.showArms || shoulders.length < 2) {
+    return [];
+  }
+
+  const length = clamp(params.armLength ?? 120, 40, 240);
+
+  return shoulders.map((shoulder, index) => {
+    const side = index === 0 ? "left" : "right";
+    const behindTorso = pose.yaw === 0
+      || (side === "left" ? pose.yaw > 0 : pose.yaw < 0);
+    const points = makeHangingArmPoints(
+      shoulder,
+      side,
+      shoulder.r,
+      shoulder.cy + length
+    );
+
+    return {
+      id: `arm-${side}`,
+      side,
+      behindTorso,
+      shoulder: { ...shoulder },
+      length,
+      points: rotatePointsAround(points, shoulder, armRotationRadians(params, side)),
+      fill: params.bodyColor,
+      stroke: "black",
+      outlineFragments: []
+    };
+  });
+}
+
+function solveClothingSleeves(params, arms, clothingShapes) {
+  const sleeveLength = clamp(params.clothingSleeveLength ?? 0, 0, 1);
+
+  if (!arms.length || sleeveLength <= POLYGON_UNION_EPSILON) {
+    return [];
+  }
+
+  const radiusOffset = clamp(params.clothingOffset ?? 3, 0, 12);
+  const sleeves = arms.map(arm => {
+    const points = makeHangingArmPoints(
+      arm.shoulder,
+      arm.side,
+      arm.shoulder.r + radiusOffset,
+      arm.shoulder.cy + arm.length * sleeveLength
+    );
+
+    return {
+      id: `clothing-sleeve-${arm.side}`,
+      side: arm.side,
+      behindTorso: arm.behindTorso,
+      shoulder: { ...arm.shoulder },
+      length: arm.length * sleeveLength,
+      lengthFraction: sleeveLength,
+      points: rotatePointsAround(
+        points,
+        arm.shoulder,
+        armRotationRadians(params, arm.side)
+      ),
+      fill: params.clothingColor,
+      stroke: "black",
+      outlineFragments: []
+    };
+  });
+
+  applyReciprocalOutlineTrimming(clothingShapes, sleeves);
+  return sleeves;
+}
 
 function unionGarmentSource(torsoPolygon, ribCageGuide) {
   const merged = unionPolygonOutlines(torsoPolygon, ribCageGuide);
@@ -2752,7 +2992,7 @@ function projectedLowerEnvelope(points) {
 
 const CLOTHING_V_EDGE_SAMPLES = 8;
 
-function solveClothing(params, garmentSource) {
+function solveClothing(params, garmentSource, arms = []) {
   if (!params.showClothing || !garmentSource?.polygons.length) {
     return null;
   }
@@ -2895,14 +3135,17 @@ function solveClothing(params, garmentSource) {
     projectedCutout ?? fallbackCutout
   ]);
   const cutout = cutouts[0] ?? null;
+  const shapes = polygons.map((points, index) => ({
+    id: `clothing-${index}`,
+    points,
+    fill: params.clothingColor,
+    stroke: "black"
+  }));
+  const sleeves = solveClothingSleeves(params, arms, shapes);
 
   return {
-    shapes: polygons.map((points, index) => ({
-      id: `clothing-${index}`,
-      points,
-      fill: params.clothingColor,
-      stroke: "black"
-    })),
+    shapes,
+    sleeves,
     cutout,
     cutouts,
     neckline,
@@ -3033,6 +3276,7 @@ function solveBody(params, pose, structure) {
       ribCageShape: null,
       clavicleLines: [],
       clothing: null,
+      arms: [],
       shoulders: [],
       landmarks: {},
       ribCageGuide: [],
@@ -3302,6 +3546,13 @@ function solveBody(params, pose, structure) {
     fill: params.bodyColor,
     stroke: "black"
   };
+  const arms = solveArms(params, pose, shoulders);
+
+  if (arms.length) {
+    const skinShapes = [torsoOutline, ...(ribCageShape ? [ribCageShape] : [])];
+    applyReciprocalOutlineTrimming(skinShapes, arms);
+  }
+
   const necklessTorsoPolygon = [
     neckBottomLeft,
     neckBottomRight,
@@ -3336,13 +3587,14 @@ function solveBody(params, pose, structure) {
     torsoBottomRight,
     neckLength: Math.max(0, params.neckLength)
   };
-  const clothing = solveClothing(params, garmentSource);
+  const clothing = solveClothing(params, garmentSource, arms);
 
   return {
     torsoOutline,
     ribCageShape,
     clavicleLines,
     clothing,
+    arms,
     shoulders,
     landmarks,
     ribCageGuide,
@@ -4315,6 +4567,70 @@ function makeNostrils(project, skull, pose, referenceBase, yOffset, widthScale =
   };
 }
 
+function makeNoseBridgeControl(project, bridge, tip, pose, requestedRoundedness) {
+  const roundedness = Number.isFinite(requestedRoundedness) ? clamp(requestedRoundedness, -1, 1) : 0;
+  if (Math.abs(roundedness) <= 1e-9) return null;
+  const chord = { x: tip.x - bridge.x, y: tip.y - bridge.y, z: tip.z - bridge.z };
+  const chordLength = Math.hypot(chord.x, chord.y, chord.z);
+  if (!Number.isFinite(chordLength) || chordLength <= 1e-9) return null;
+  const chordUnit = { x: chord.x / chordLength, y: chord.y / chordLength, z: chord.z / chordLength };
+  const yawAngle = pose.yaw * Math.PI / 2;
+  const faceDepth = { x: -Math.sin(yawAngle), y: 0, z: Math.cos(yawAngle) };
+  const alongChord = faceDepth.x * chordUnit.x + faceDepth.y * chordUnit.y + faceDepth.z * chordUnit.z;
+  const normal = {
+    x: faceDepth.x - chordUnit.x * alongChord,
+    y: faceDepth.y - chordUnit.y * alongChord,
+    z: faceDepth.z - chordUnit.z * alongChord
+  };
+  const normalLength = Math.hypot(normal.x, normal.y, normal.z);
+  if (!Number.isFinite(normalLength) || normalLength <= 1e-9) return null;
+  const offset = roundedness * chordLength / normalLength;
+  return project(
+    (bridge.x + tip.x) / 2 + normal.x * offset,
+    (bridge.y + tip.y) / 2 + normal.y * offset,
+    (bridge.z + tip.z) / 2 + normal.z * offset
+  );
+}
+
+function makeNostrilArcs(tip, nostrils, requestedRoundedness) {
+  const roundedness = Number.isFinite(requestedRoundedness) ? clamp(requestedRoundedness, -1, 1) : 0;
+  if (roundedness <= 1e-9) return { visible: null, hidden: null };
+  const centroid = {
+    x: (tip.x + nostrils.visible.x + nostrils.hidden.x) / 3,
+    y: (tip.y + nostrils.visible.y + nostrils.hidden.y) / 3
+  };
+  const angle = roundedness * Math.PI;
+  const halfAngleSine = Math.sin(angle / 2);
+  const makeArc = nostril => {
+    const chord = { x: nostril.x - tip.x, y: nostril.y - tip.y };
+    const chordLength = Math.hypot(chord.x, chord.y);
+    if (!Number.isFinite(chordLength) || chordLength <= 1e-9 || halfAngleSine <= 1e-9) return null;
+    const chordMidpoint = { x: (tip.x + nostril.x) / 2, y: (tip.y + nostril.y) / 2 };
+    let outwardNormal = { x: -chord.y / chordLength, y: chord.x / chordLength };
+    const away = { x: chordMidpoint.x - centroid.x, y: chordMidpoint.y - centroid.y };
+    let sweep = 0;
+    if (outwardNormal.x * away.x + outwardNormal.y * away.y < 0) {
+      outwardNormal = { x: -outwardNormal.x, y: -outwardNormal.y };
+      sweep = 1;
+    }
+    const radius = chordLength / (2 * halfAngleSine);
+    const sagitta = chordLength * 0.5 * Math.tan(angle / 4);
+    return {
+      start: tip,
+      end: nostril,
+      angle,
+      radius,
+      sagitta,
+      sweep,
+      apex: {
+        x: chordMidpoint.x + outwardNormal.x * sagitta,
+        y: chordMidpoint.y + outwardNormal.y * sagitta
+      }
+    };
+  };
+  return { visible: makeArc(nostrils.visible), hidden: makeArc(nostrils.hidden) };
+}
+
 function makeNostrilCurves(nostrils, skull, requestedScale, yawAmount) {
   const sliderScale = Number.isFinite(requestedScale) ? clamp(requestedScale, 0.5, 3) : 1;
   const yawScale = lerp(0.75, 1, clamp(yawAmount, 0, 1));
@@ -4348,12 +4664,20 @@ function makeNostrilCurves(nostrils, skull, requestedScale, yawAmount) {
   };
 }
 
-function projectReferencePoint(project, skull, poseSignValue, referencePoint, z = 0, yOffset = 0) {
-  return project(
-    poseSignValue * referencePoint[0] * skull.rx,
-    skull.cy + referencePoint[1] * skull.ry + yOffset,
+function makeReferenceModelPoint(skull, poseSignValue, referencePoint, z = 0, yOffset = 0) {
+  return {
+    x: poseSignValue * referencePoint[0] * skull.rx,
+    y: skull.cy + referencePoint[1] * skull.ry + yOffset,
     z
-  );
+  };
+}
+
+function projectModelPoint(project, point) {
+  return project(point.x, point.y, point.z);
+}
+
+function projectReferencePoint(project, skull, poseSignValue, referencePoint, z = 0, yOffset = 0) {
+  return projectModelPoint(project, makeReferenceModelPoint(skull, poseSignValue, referencePoint, z, yOffset));
 }
 
 function projectMouthPoint(project, skull, poseSignValue, referencePoint, referenceMidpoint, scale, z, yOffset) {

@@ -7,9 +7,13 @@ export function renderFaceSvg(rig) {
     <svg viewBox="0 0 500 500" role="img" aria-label="2.5D anime face preview">
       ${rig.removeStrokes ? renderRemoveStrokesStyle() : ""}
       ${renderCloak(rig.cloak, "back")}
+      ${renderAppendageLayer(rig.body?.arms, "back", "arm")}
+      ${renderAppendageLayer(rig.body?.clothing?.sleeves, "back", "clothing-sleeve")}
       ${renderArmor(rig.armor, true)}
       ${renderBodyBase(rig.body)}
       ${renderGarmentLayer(rig.body?.clothing, "clothing")}
+      ${renderAppendageLayer(rig.body?.arms, "front", "arm")}
+      ${renderAppendageLayer(rig.body?.clothing?.sleeves, "front", "clothing-sleeve")}
       ${renderGarmentLayer(rig.armor?.breastplate, "breastplate")}
       ${renderArmor(rig.armor, false)}
       ${renderCloak(rig.cloak, "front")}
@@ -59,6 +63,48 @@ function renderRemoveStrokesStyle() {
       }
     </style>
   `;
+}
+
+function renderAppendageLayer(shapes, layer, className) {
+  const behindTorso = layer === "back";
+  const selected = (shapes ?? []).filter(shape => shape.behindTorso === behindTorso);
+
+  if (!selected.length) {
+    return "";
+  }
+
+  return `
+    <g class="${className}-${layer}-layer">
+      ${selected.map(shape => `
+        <path
+          class="${className}-fill ${className}-${shape.side}"
+          d="${renderPointPath(shape.points)} Z"
+          fill="${shape.fill}"
+          stroke="none"
+        />
+        ${renderOutlineFragments(
+          shape.outlineFragments,
+          `${className}-outline ${className}-${shape.side}-outline`,
+          shape.stroke,
+          4
+        )}
+      `).join("")}
+    </g>
+  `;
+}
+
+function renderOutlineFragments(fragments, className, stroke, strokeWidth) {
+  return (fragments ?? []).filter(fragment => fragment.points.length >= 2).map(fragment => `
+    <path
+      class="${className}"
+      d="${renderPointPath(fragment.points)}${fragment.closed ? " Z" : ""}"
+      fill="none"
+      stroke="${stroke}"
+      stroke-width="${strokeWidth}"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  `).join("");
 }
 
 function renderBodyBase(body) {
@@ -113,7 +159,20 @@ function renderGarmentLayer(garment, className) {
     `
     : "";
   const maskAttribute = hasCutout ? ` mask="url(#${maskId})"` : "";
-  const shapes = garment.shapes.map(shape => `
+  const shapes = garment.shapes.map(shape => shape.outlineFragments ? `
+    <path
+      class="${className}-shell ${shape.id}"
+      d="${renderPointPath(shape.points)} Z"
+      fill="${shape.fill}"
+      stroke="none"
+    />
+    ${renderOutlineFragments(
+      shape.outlineFragments,
+      `${className}-shell-outline ${shape.id}-outline`,
+      shape.stroke,
+      4
+    )}
+  ` : `
     <path
       class="${className}-shell ${shape.id}"
       d="${renderPointPath(shape.points)} Z"
@@ -393,6 +452,18 @@ function renderBodyLandmarks(landmarks) {
 }
 
 function renderBodyShape(shape) {
+  if (shape.outlineFragments) {
+    return `
+      <path
+        class="body-shape-fill"
+        d="${renderPointPath(shape.points)} Z"
+        fill="${shape.fill}"
+        stroke="none"
+      />
+      ${renderOutlineFragments(shape.outlineFragments, "body-shape-outline", shape.stroke, 4)}
+    `;
+  }
+
   return `
     <path
       d="${renderPointPath(shape.points)} Z"
@@ -1366,8 +1437,8 @@ function lightenHex(value, amount) {
 
 function renderNose(nose, yawAmount) {
   const nostrils = [
-    { point: nose.leftNostril, curve: nose.leftNostrilCurve },
-    { point: nose.rightNostril, curve: nose.rightNostrilCurve }
+    { point: nose.leftNostril, arc: nose.leftNostrilArc, curve: nose.leftNostrilCurve },
+    { point: nose.rightNostril, arc: nose.rightNostrilArc, curve: nose.rightNostrilCurve }
   ];
   const farNostrilIndex = Math.abs(nostrils[0].point.x - 250) > Math.abs(nostrils[1].point.x - 250) ? 0 : 1;
   const farNostril = nostrils[farNostrilIndex];
@@ -1378,7 +1449,7 @@ function renderNose(nose, yawAmount) {
       ${showBridgeSegment ? `
     <path
       class="nose-bridge-segment"
-      d="M ${nose.bridge.x} ${nose.bridge.y} L ${nose.tip.x} ${nose.tip.y}"
+      d="${renderNoseBridgePath(nose)}"
       fill="none"
       stroke="black"
       stroke-width="3"
@@ -1386,7 +1457,7 @@ function renderNose(nose, yawAmount) {
     />` : ""}
     <path
       class="nose-near-nostril-segment"
-      d="M ${nose.tip.x} ${nose.tip.y} L ${nearNostril.point.x} ${nearNostril.point.y}"
+      d="${renderNoseLowerSegmentPath(nose.tip, nearNostril)}"
       fill="none"
       stroke="black"
       stroke-width="3"
@@ -1396,7 +1467,7 @@ function renderNose(nose, yawAmount) {
     ${yawAmount <= 0.5 ? `
     <path
       class="nose-far-nostril-segment"
-      d="M ${nose.tip.x} ${nose.tip.y} L ${farNostril.point.x} ${farNostril.point.y}"
+      d="${renderNoseLowerSegmentPath(nose.tip, farNostril)}"
       fill="none"
       stroke="black"
       stroke-width="3"
@@ -1404,6 +1475,18 @@ function renderNose(nose, yawAmount) {
     />
     ${renderNostrilCurve(farNostril.curve, "nose-far-nostril-curve")}` : ""}
   `;
+}
+
+function renderNoseBridgePath(nose) {
+  return nose.bridgeControl
+    ? `M ${nose.bridge.x} ${nose.bridge.y} Q ${nose.bridgeControl.x} ${nose.bridgeControl.y} ${nose.tip.x} ${nose.tip.y}`
+    : `M ${nose.bridge.x} ${nose.bridge.y} L ${nose.tip.x} ${nose.tip.y}`;
+}
+
+function renderNoseLowerSegmentPath(tip, nostril) {
+  return nostril.arc
+    ? `M ${tip.x} ${tip.y} A ${nostril.arc.radius} ${nostril.arc.radius} 0 0 ${nostril.arc.sweep} ${nostril.point.x} ${nostril.point.y}`
+    : `M ${tip.x} ${tip.y} L ${nostril.point.x} ${nostril.point.y}`;
 }
 
 function renderNostrilCurve(curve, className) {

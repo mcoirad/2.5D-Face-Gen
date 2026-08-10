@@ -1452,7 +1452,7 @@ function solveFeatures(params, pose, structure) {
   const noseBase = noseWidthRef(reference.nose.base);
   const nostrils = makeNostrils(projectStructure, structure.skull, pose, noseBase, params.noseY, params.noseWidth);
   const nostrilCurves = params.showNostrilCurves
-    ? makeNostrilCurves(nostrils, structure.skull, params.nostrilCurveScale)
+    ? makeNostrilCurves(nostrils, structure.skull, params.nostrilCurveScale, pose.amount)
     : null;
   const nose = {
     bridge: projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.bridge, 55, eyeYOffset * 0.55 + params.noseY - noseBridgeOffset),
@@ -4315,8 +4315,10 @@ function makeNostrils(project, skull, pose, referenceBase, yOffset, widthScale =
   };
 }
 
-function makeNostrilCurves(nostrils, skull, requestedScale) {
-  const scale = Number.isFinite(requestedScale) ? clamp(requestedScale, 0.25, 2) : 1;
+function makeNostrilCurves(nostrils, skull, requestedScale, yawAmount) {
+  const sliderScale = Number.isFinite(requestedScale) ? clamp(requestedScale, 0.5, 3) : 1;
+  const yawScale = lerp(0.75, 1, clamp(yawAmount, 0, 1));
+  const scale = sliderScale * yawScale;
   const length = clamp(Math.min(skull.rx, skull.ry) * 0.08, 4, 10) * scale;
   const midpointX = (nostrils.visible.x + nostrils.hidden.x) / 2;
 

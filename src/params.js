@@ -375,7 +375,7 @@ export const sliderConfig = {
   noseY: [-16, 16, 1],
   noseWidth: [0.3, 2, 0.01],
   noseProtrusion: [0.3, 2, 0.01],
-  nostrilCurveScale: [0.25, 2, 0.01],
+  nostrilCurveScale: [0.5, 3, 0.01],
   mouthWidth: [30, 110, 1],
   mouthPosition: [0, 1, 0.01],
   mouthHeight: [0, 30, 1],

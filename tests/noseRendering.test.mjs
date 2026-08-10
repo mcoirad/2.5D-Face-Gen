@@ -154,7 +154,7 @@ test("nostril curves are opt-in paired geometry that curls outward and upward", 
 
 test("nostril curve scale changes offsets without moving the attachments", () => {
   const small = solve({ showNostrilCurves: true, nostrilCurveScale: 0.5 }).features.nose;
-  const large = solve({ showNostrilCurves: true, nostrilCurveScale: 2 }).features.nose;
+  const large = solve({ showNostrilCurves: true, nostrilCurveScale: 3 }).features.nose;
 
   for (const side of ["left", "right"]) {
     const nostrilKey = `${side}Nostril`;
@@ -163,12 +163,32 @@ test("nostril curve scale changes offsets without moving the attachments", () =>
     const largeCurve = large[curveKey];
 
     assert.deepEqual(small[nostrilKey], large[nostrilKey]);
-    assertClose(largeCurve.end.x - largeCurve.start.x, 4 * (smallCurve.end.x - smallCurve.start.x), `${side} reach scales`);
-    assertClose(largeCurve.end.y - largeCurve.start.y, 4 * (smallCurve.end.y - smallCurve.start.y), `${side} rise scales`);
+    assertClose(largeCurve.end.x - largeCurve.start.x, 6 * (smallCurve.end.x - smallCurve.start.x), `${side} reach scales`);
+    assertClose(largeCurve.end.y - largeCurve.start.y, 6 * (smallCurve.end.y - smallCurve.start.y), `${side} rise scales`);
     for (const control of ["control1", "control2"]) {
-      assertClose(largeCurve[control].x - largeCurve.start.x, 4 * (smallCurve[control].x - smallCurve.start.x), `${side} ${control} X scales`);
-      assertClose(largeCurve[control].y - largeCurve.start.y, 4 * (smallCurve[control].y - smallCurve.start.y), `${side} ${control} Y scales`);
+      assertClose(largeCurve[control].x - largeCurve.start.x, 6 * (smallCurve[control].x - smallCurve.start.x), `${side} ${control} X scales`);
+      assertClose(largeCurve[control].y - largeCurve.start.y, 6 * (smallCurve[control].y - smallCurve.start.y), `${side} ${control} Y scales`);
     }
+  }
+});
+
+test("nostril curve scale increases continuously from seventy-five percent at front view", () => {
+  const front = solve({ yaw: 0, showNostrilCurves: true, nostrilCurveScale: 2 }).features.nose;
+  const threeQuarter = solve({ yaw: 0.5, showNostrilCurves: true, nostrilCurveScale: 2 }).features.nose;
+  const profiles = [
+    solve({ yaw: -1, showNostrilCurves: true, nostrilCurveScale: 2 }).features.nose,
+    solve({ yaw: 1, showNostrilCurves: true, nostrilCurveScale: 2 }).features.nose
+  ];
+  const curveLength = curve => Math.hypot(
+    curve.control1.x - curve.start.x,
+    curve.control1.y - curve.start.y
+  );
+  const profileLength = curveLength(profiles[0].leftNostrilCurve);
+
+  assertClose(curveLength(front.leftNostrilCurve), profileLength * 0.75, "front-view effective scale");
+  assertClose(curveLength(threeQuarter.leftNostrilCurve), profileLength * 0.875, "three-quarter effective scale");
+  for (const profile of profiles) {
+    assertClose(curveLength(profile.leftNostrilCurve), profileLength, "profile effective scale");
   }
 });
 
@@ -208,10 +228,10 @@ test("near and far nostril curve classes remain paired with their endpoints", ()
 
 test("nostril curves render as finite ordinary cubic nose strokes", () => {
   const cases = [
-    { yaw: -1, pitch: -0.5, faceWidth: 120, faceHeight: 220, noseWidth: 0.3, noseY: -16, nostrilCurveScale: 0.25 },
-    { yaw: -0.5, pitch: 0.5, faceWidth: 220, faceHeight: 120, noseWidth: 2, noseY: 16, nostrilCurveScale: 2 },
-    { yaw: 0.5, pitch: -0.5, faceWidth: 220, faceHeight: 220, noseWidth: 0.3, noseY: 16, nostrilCurveScale: 2 },
-    { yaw: 1, pitch: 0.5, faceWidth: 120, faceHeight: 120, noseWidth: 2, noseY: -16, nostrilCurveScale: 0.25 }
+    { yaw: -1, pitch: -0.5, faceWidth: 120, faceHeight: 220, noseWidth: 0.3, noseY: -16, nostrilCurveScale: 0.5 },
+    { yaw: -0.5, pitch: 0.5, faceWidth: 220, faceHeight: 120, noseWidth: 2, noseY: 16, nostrilCurveScale: 3 },
+    { yaw: 0.5, pitch: -0.5, faceWidth: 220, faceHeight: 220, noseWidth: 0.3, noseY: 16, nostrilCurveScale: 3 },
+    { yaw: 1, pitch: 0.5, faceWidth: 120, faceHeight: 120, noseWidth: 2, noseY: -16, nostrilCurveScale: 0.5 }
   ];
 
   for (const overrides of cases) {

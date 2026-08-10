@@ -1451,11 +1451,16 @@ function solveFeatures(params, pose, structure) {
   const noseBridgeOffset = Math.max(noseRawBridgeOffset, NOSE_MIN_GAP_MARGIN - noseMinGapAbs);
   const noseBase = noseWidthRef(reference.nose.base);
   const nostrils = makeNostrils(projectStructure, structure.skull, pose, noseBase, params.noseY, params.noseWidth);
+  const nostrilCurves = params.showNostrilCurves
+    ? makeNostrilCurves(nostrils, structure.skull, params.nostrilCurveScale)
+    : null;
   const nose = {
     bridge: projectReferencePoint(projectStructure, structure.skull, pose.sign, reference.nose.bridge, 55, eyeYOffset * 0.55 + params.noseY - noseBridgeOffset),
     tip: projectReferencePoint(projectStructure, structure.skull, pose.sign, noseProtrusionRef(reference.nose.tip), 75, params.noseY),
     leftNostril: nostrils.visible,
-    rightNostril: nostrils.hidden
+    rightNostril: nostrils.hidden,
+    leftNostrilCurve: nostrilCurves?.visible ?? null,
+    rightNostrilCurve: nostrilCurves?.hidden ?? null
   };
   const faceScar = makeFaceScar(params, pose, nose.bridge);
   const featureVisibility = solveFeatureVisibilityFromNose(pose, eyes, nose.tip);
@@ -4307,6 +4312,37 @@ function makeNostrils(project, skull, pose, referenceBase, yOffset, widthScale =
   return {
     visible: projectReferencePoint(project, skull, pose.sign, referenceBase, 58, yOffset),
     hidden: projectReferencePoint(project, skull, pose.sign, hiddenBase, 58, yOffset)
+  };
+}
+
+function makeNostrilCurves(nostrils, skull, requestedScale) {
+  const scale = Number.isFinite(requestedScale) ? clamp(requestedScale, 0.25, 2) : 1;
+  const length = clamp(Math.min(skull.rx, skull.ry) * 0.08, 4, 10) * scale;
+  const midpointX = (nostrils.visible.x + nostrils.hidden.x) / 2;
+
+  const makeCurve = (nostril, fallbackDirection) => {
+    const direction = Math.sign(nostril.x - midpointX) || fallbackDirection;
+
+    return {
+      start: nostril,
+      control1: {
+        x: nostril.x + direction * length * 0.82,
+        y: nostril.y + length * 0.12
+      },
+      control2: {
+        x: nostril.x + direction * length * 0.98,
+        y: nostril.y - length * 0.72
+      },
+      end: {
+        x: nostril.x + direction * length * 0.12,
+        y: nostril.y - length * 0.86
+      }
+    };
+  };
+
+  return {
+    visible: makeCurve(nostrils.visible, 1),
+    hidden: makeCurve(nostrils.hidden, -1)
   };
 }
 

@@ -1365,8 +1365,11 @@ function lightenHex(value, amount) {
 }
 
 function renderNose(nose, yawAmount) {
-  const nostrils = [nose.leftNostril, nose.rightNostril];
-  const farNostrilIndex = Math.abs(nostrils[0].x - 250) > Math.abs(nostrils[1].x - 250) ? 0 : 1;
+  const nostrils = [
+    { point: nose.leftNostril, curve: nose.leftNostrilCurve },
+    { point: nose.rightNostril, curve: nose.rightNostrilCurve }
+  ];
+  const farNostrilIndex = Math.abs(nostrils[0].point.x - 250) > Math.abs(nostrils[1].point.x - 250) ? 0 : 1;
   const farNostril = nostrils[farNostrilIndex];
   const nearNostril = nostrils[1 - farNostrilIndex];
   const showBridgeSegment = nose.bridge.y >= nose.tip.y || yawAmount >= 0.5;
@@ -1383,22 +1386,40 @@ function renderNose(nose, yawAmount) {
     />` : ""}
     <path
       class="nose-near-nostril-segment"
-      d="M ${nose.tip.x} ${nose.tip.y} L ${nearNostril.x} ${nearNostril.y}"
+      d="M ${nose.tip.x} ${nose.tip.y} L ${nearNostril.point.x} ${nearNostril.point.y}"
       fill="none"
       stroke="black"
       stroke-width="3"
       stroke-linecap="round"
     />
+    ${renderNostrilCurve(nearNostril.curve, "nose-near-nostril-curve")}
     ${yawAmount <= 0.5 ? `
     <path
       class="nose-far-nostril-segment"
-      d="M ${nose.tip.x} ${nose.tip.y} L ${farNostril.x} ${farNostril.y}"
+      d="M ${nose.tip.x} ${nose.tip.y} L ${farNostril.point.x} ${farNostril.point.y}"
       fill="none"
       stroke="black"
       stroke-width="3"
       stroke-linecap="round"
-    />` : ""}
+    />
+    ${renderNostrilCurve(farNostril.curve, "nose-far-nostril-curve")}` : ""}
   `;
+}
+
+function renderNostrilCurve(curve, className) {
+  if (!curve) {
+    return "";
+  }
+
+  return `
+    <path
+      class="${className}"
+      d="M ${curve.start.x} ${curve.start.y} C ${curve.control1.x} ${curve.control1.y} ${curve.control2.x} ${curve.control2.y} ${curve.end.x} ${curve.end.y}"
+      fill="none"
+      stroke="black"
+      stroke-width="3"
+      stroke-linecap="round"
+    />`;
 }
 
 function renderMouth(mouth, headPathD, clipToFace) {

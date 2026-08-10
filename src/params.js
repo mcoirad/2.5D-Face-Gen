@@ -247,6 +247,8 @@ export const defaultParams = {
   noseY: 0,
   noseWidth: 1,
   noseProtrusion: 1,
+  showNostrilCurves: false,
+  nostrilCurveScale: 1,
   mouthWidth: 70,
   mouthPosition: 0.5,
   mouthHeight: 10,
@@ -373,6 +375,7 @@ export const sliderConfig = {
   noseY: [-16, 16, 1],
   noseWidth: [0.3, 2, 0.01],
   noseProtrusion: [0.3, 2, 0.01],
+  nostrilCurveScale: [0.25, 2, 0.01],
   mouthWidth: [30, 110, 1],
   mouthPosition: [0, 1, 0.01],
   mouthHeight: [0, 30, 1],
@@ -580,6 +583,7 @@ export const toggleConfig = {
   showEyebrowStroke: true,
   showEyeShading: true,
   showBaggyEyeShading: true,
+  showNostrilCurves: true,
   showUpperTeeth: true,
   showLowerTeeth: true
 };

@@ -161,6 +161,11 @@ export const defaultParams = {
   ferronniereGemSize: 16,
   ferronniereGemColor: "#b83280",
   ferronniereGemProtrusion: 0.55,
+  showHoopEarrings: false,
+  hoopEarringSide: "left",
+  hoopEarringSize: 36,
+  hoopEarringThickness: 4,
+  hoopEarringColor: "#c9a34a",
   showHairV2ScalpBase: true,
   hairV2ScalpBaseCoverage: 0.25,
   hairV2SharedOutline: true,
@@ -403,6 +408,8 @@ export const sliderConfig = {
   earStickOut: [0, 70, 1],
   earFlatten: [0, 1, 0.01],
   earCurve: [-15, 25, 1],
+  hoopEarringSize: [16, 80, 1],
+  hoopEarringThickness: [1, 12, 1],
   hairStrandCount: [0, 100, 1],
   hairStrandLength: [30, 150, 1],
   hairStrandThickness: [2, 40, 1],
@@ -495,6 +502,11 @@ export const selectConfig = {
     ["single", "Single cord"],
     ["double", "Double-line chain"]
   ],
+  hoopEarringSide: [
+    ["left", "Screen Left"],
+    ["right", "Screen Right"],
+    ["both", "Both"]
+  ],
   hairV2DoublePonytailLayout: [
     ["horizontal", "Horizontal"],
     ["vertical", "Vertical"]
@@ -531,6 +543,7 @@ export const colorConfig = {
   hairV2SideTiedLocksTieColor: true,
   ferronniereMetalColor: true,
   ferronniereGemColor: true,
+  hoopEarringColor: true,
   eyeIrisColor: true,
   eyeScarIrisColor: true,
   mouthCavityColor: true,
@@ -580,6 +593,7 @@ export const toggleConfig = {
   showHairV2DoublePonytail: true,
   showHairV2SideTiedLocks: true,
   showFerronniere: true,
+  showHoopEarrings: true,
   showMoustache: true,
   showSoulPatch: true,
   showBeard: true,

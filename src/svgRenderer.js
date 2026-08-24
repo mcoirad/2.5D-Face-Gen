@@ -20,7 +20,7 @@ export function renderFaceSvg(rig) {
       ${renderBodyGuides(rig.body, rig.showGuides)}
       ${renderFerronniere(rig.ferronniere, "back")}
       ${renderHelmetLayers(rig.helmet?.back)}
-      ${renderEars(rig.ears, "back")}
+      ${renderEars(rig.ears, rig.hoopEarrings, "back")}
       ${renderDoublePonytailExtensions(rig.doublePonytail, "back")}
       ${renderPonytailExtension(rig.ponytail, "back")}
       ${renderHair(rig.hair, "back")}
@@ -36,7 +36,7 @@ export function renderFaceSvg(rig) {
       ${renderFaceScar(rig.features.faceScar, headPathD)}
       ${renderEyeScars(rig.features.eyes, headPathD)}
       ${renderFerronniere(rig.ferronniere, "front")}
-      ${renderEars(rig.ears, "front")}
+      ${renderEars(rig.ears, rig.hoopEarrings, "front")}
       ${rig.showGuides ? renderGuides(rig.head.guides) : ""}
       ${renderNose(rig.features.nose, rig.pose.amount)}
       ${renderMouth(rig.features.mouth, headPathD, rig.clipMouthToFace)}
@@ -529,21 +529,74 @@ function renderHead(headPathD, skinColor = "#f6f1e8") {
   `;
 }
 
-function renderEars(ears, layer) {
+function renderEars(ears, hoopEarrings, layer) {
   if (!ears) {
     return "";
   }
 
-  return [ears.left, ears.right]
-    .filter(ear => ear.layer === layer)
-    .map(renderEar)
+  return ["left", "right"]
+    .filter(side => ears[side].layer === layer)
+    .map(side => renderEarBundle(ears[side], hoopEarrings?.[side], side))
     .join("");
+}
+
+function renderEarBundle(ear, hoopEarring, side) {
+  return `
+    <g class="ear-bundle ear-${side}-bundle">
+      ${renderHoopEarringSector(hoopEarring, "back")}
+      ${renderEar(ear, side)}
+      ${renderHoopEarringSector(hoopEarring, "front")}
+    </g>
+  `;
+}
+
+function renderHoopEarringSector(earring, sectorName) {
+  const sector = earring?.sectors?.[sectorName];
+
+  if (!sector?.points?.length) {
+    return "";
+  }
+
+  const side = earring.side;
+
+  return `
+    <g class="hoop-earring-sector-layer hoop-earring-${side}-${sectorName}-layer">
+      <path
+        class="hoop-earring-sector hoop-earring-${side} hoop-earring-${sectorName}"
+        d="${renderPointPath(sector.points)} Z"
+        fill="${earring.color}"
+        stroke="none"
+      />
+      ${sector.boundaryEdges.map((edge, index) => `
+        <path
+          class="hoop-earring-boundary hoop-earring-${side}-boundary hoop-earring-${sectorName}-boundary hoop-earring-boundary-${index}"
+          d="${renderPointPath(edge)}"
+          fill="none"
+          stroke="black"
+          stroke-width="3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      `).join("")}
+      ${(sector.endCaps ?? []).map((edge, index) => `
+        <path
+          class="hoop-earring-end-cap hoop-earring-${side}-end-cap hoop-earring-${sectorName}-end-cap hoop-earring-end-cap-${index}"
+          d="${renderPointPath(edge)}"
+          fill="none"
+          stroke="black"
+          stroke-width="3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      `).join("")}
+    </g>
+  `;
 }
 
 // Two curved edges (apex -> top attach, apex -> bottom attach) plus a straight,
 // unstroked attach edge closing the fill. The stroke path covers only the two
 // curved edges so the face-attached edge stays strokeless.
-function renderEar(ear) {
+function renderEar(ear, side) {
   const { topAttach, bottomAttach, attachControl, apex, curve, fill } = ear;
   const centroid = scalePoint(addPoints(addPoints(topAttach, bottomAttach), apex), 1 / 3);
   const cTop = earEdgeControl(topAttach, apex, centroid, curve);
@@ -558,8 +611,9 @@ function renderEar(ear) {
     ` Q ${cBot.x} ${cBot.y} ${bottomAttach.x} ${bottomAttach.y}`;
 
   return `
-    <path d="${fillD}" fill="${fill}" stroke="none" />
+    <path class="ear-fill ear-${side}" d="${fillD}" fill="${fill}" stroke="none" />
     <path
+      class="ear-outline ear-${side}-outline"
       d="${strokeD}"
       fill="none"
       stroke="black"

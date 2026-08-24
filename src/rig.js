@@ -232,6 +232,10 @@ export function solveFaceRig(params) {
   const ponytail = solvePonytail(params, pose, head.structure);
   const doublePonytail = solveDoublePonytail(params, pose, head.structure);
   const sideTiedLocks = solveSideTiedLocks(params, pose, head.structure);
+  const ears = params.showEars
+    ? solveEars(params, pose, head.structure, features, head.outline)
+    : null;
+  const hoopEarrings = solveHoopEarrings(params, pose, ears);
   const attractionTargets = [];
   if (ponytail && params.hairV2PonytailAttractionArea > 0) {
     attractionTargets.push({
@@ -274,7 +278,8 @@ export function solveFaceRig(params) {
     body,
     armor,
     cloak,
-    ears: params.showEars ? solveEars(params, pose, head.structure, features, head.outline) : null,
+    ears,
+    hoopEarrings,
     helmet: solveHelmet(params, pose, head.structure, features),
     features,
     visibility: solveVisibility(pose.amount)
@@ -3669,6 +3674,12 @@ const EAR_ATTACH_OVERLAP = 5;
 const EAR_NEGATIVE_PITCH_HEIGHT_RATIO = 0.5;
 const EAR_POSITIVE_PITCH_HEIGHT_RATIO = 0.8;
 const EAR_PITCH_LIMIT = 0.5;
+const HOOP_EARRING_HALF_SAMPLES = 16;
+const HOOP_EARRING_COLOR = "#c9a34a";
+const HOOP_EARRING_DROP = -10;
+const HOOP_EARRING_OUTWARD_OFFSET = 5;
+const HOOP_EARRING_REPAIR_ATTEMPTS = 5;
+const HOOP_EARRING_END_CAP_YAW = 0.04;
 
 function solveEars(params, pose, structure, features, outline) {
   const skull = structure.skull;
@@ -3735,6 +3746,279 @@ function solveEars(params, pose, structure, features, outline) {
   };
 
   return { left: buildEar(-1), right: buildEar(1) };
+}
+
+function solveHoopEarrings(params, pose, ears) {
+  if (!params.showHoopEarrings || !ears) {
+    return null;
+  }
+
+  const selectedSide = ["left", "right", "both"].includes(params.hoopEarringSide)
+    ? params.hoopEarringSide
+    : "left";
+  const size = clamp(
+    Number.isFinite(params.hoopEarringSize) ? params.hoopEarringSize : 36,
+    16,
+    80
+  );
+  const requestedThickness = clamp(
+    Number.isFinite(params.hoopEarringThickness) ? params.hoopEarringThickness : 4,
+    1,
+    12
+  );
+  const thickness = Math.min(requestedThickness, size * 0.4);
+  const color = isHexColor(params.hoopEarringColor)
+    ? params.hoopEarringColor
+    : HOOP_EARRING_COLOR;
+  const result = { left: null, right: null };
+
+  for (const side of ["left", "right"]) {
+    if (selectedSide !== "both" && selectedSide !== side) {
+      continue;
+    }
+
+    result[side] = makeHoopEarring(
+      side,
+      ears[side],
+      pose,
+      clamp(params.pitch, -EAR_PITCH_LIMIT, EAR_PITCH_LIMIT),
+      size,
+      thickness,
+      requestedThickness,
+      color
+    );
+  }
+
+  return result.left || result.right ? result : null;
+}
+
+function makeHoopEarring(side, ear, pose, pitch, size, thickness, requestedThickness, color) {
+  let effectiveThickness = thickness;
+  const screenSide = side === "left" ? -1 : 1;
+  const geometryAnchor = {
+    x: ear.bottomAttach.x + screenSide * HOOP_EARRING_OUTWARD_OFFSET,
+    y: ear.bottomAttach.y
+  };
+
+  for (let attempt = 0; attempt < HOOP_EARRING_REPAIR_ATTEMPTS; attempt += 1) {
+    const geometry = makeHoopEarringGeometry(
+      geometryAnchor,
+      pose.yaw,
+      pitch,
+      size,
+      effectiveThickness,
+      HOOP_EARRING_DROP
+    );
+
+    if (geometry) {
+      return {
+        side,
+        layer: ear.layer,
+        edgeOn: geometry.edgeOn,
+        endCapped: geometry.endCapped,
+        attachment: { ...ear.bottomAttach },
+        center: geometry.center,
+        centerline: geometry.centerline,
+        sectors: geometry.sectors,
+        outerDiameter: size,
+        requestedThickness,
+        thickness: effectiveThickness,
+        drop: HOOP_EARRING_DROP,
+        outwardOffset: HOOP_EARRING_OUTWARD_OFFSET,
+        color
+      };
+    }
+
+    effectiveThickness *= 0.5;
+  }
+
+  return null;
+}
+
+function makeHoopEarringGeometry(anchor, yaw, pitch, size, thickness, drop) {
+  const outerRadius = size / 2;
+  const centerlineRadius = outerRadius - thickness / 2;
+  const yawAngle = yaw * Math.PI / 2;
+  const sinYaw = Math.sin(yawAngle);
+  const cosYaw = Math.cos(yawAngle);
+  const cosPitch = Math.cos(pitch);
+  const sinPitch = Math.sin(pitch);
+  const projectAngle = angle => {
+    const localY = outerRadius - centerlineRadius * Math.cos(angle);
+    const localZ = centerlineRadius * Math.sin(angle);
+    const rotatedX = localZ * sinYaw;
+    const rotatedZ = localZ * cosYaw;
+
+    return {
+      x: rotatedX,
+      y: localY * cosPitch - rotatedZ * sinPitch,
+      depth: localY * sinPitch + rotatedZ * cosPitch,
+      localDepth: localZ
+    };
+  };
+  const projectedNormalAt = angle => {
+    const tangent = {
+      x: centerlineRadius * Math.cos(angle) * sinYaw,
+      y: centerlineRadius * Math.sin(angle) * cosPitch
+        - centerlineRadius * Math.cos(angle) * cosYaw * sinPitch
+    };
+
+    return perpendicularUnit(tangent, { x: 1, y: 0 });
+  };
+  const edgeOn = Math.abs(sinYaw) <= POLYGON_UNION_EPSILON;
+  const endCapped = Math.abs(yaw) <= HOOP_EARRING_END_CAP_YAW + POLYGON_UNION_EPSILON;
+  const edgeOnCenterline = edgeOn
+    ? sampleEdgeOnHoopCenterline(outerRadius, centerlineRadius, cosPitch)
+    : null;
+  // The negative local-depth half projects toward the face at either profile:
+  // leftward for positive yaw and rightward for negative yaw. That is the arc
+  // that must pass over the ear; the outward half belongs behind it.
+  const frontCenterline = edgeOnCenterline ?? sampleHoopHalf(projectAngle, -1);
+  const backCenterline = edgeOnCenterline?.map(point => ({ ...point }))
+    ?? sampleHoopHalf(projectAngle, 1);
+  const endpointNormals = edgeOn
+    ? [{ x: 1, y: 0 }, { x: 1, y: 0 }]
+    : [projectedNormalAt(0), projectedNormalAt(Math.PI)];
+  const front = makeHoopRibbonSector(frontCenterline, thickness, endpointNormals);
+  const back = makeHoopRibbonSector(backCenterline, thickness, endpointNormals);
+
+  if (!front || !back) {
+    return null;
+  }
+
+  const minY = Math.min(
+    ...front.points.map(point => point.y),
+    ...back.points.map(point => point.y)
+  );
+  const translation = {
+    x: anchor.x,
+    y: anchor.y + drop - minY
+  };
+  const translatePoint = point => ({
+    ...point,
+    x: point.x + translation.x,
+    y: point.y + translation.y
+  });
+  const translateSector = sector => ({
+    points: sector.points.map(translatePoint),
+    centerline: sector.centerline.map(translatePoint),
+    boundaryEdges: sector.boundaryEdges.map(edge => edge.map(translatePoint)),
+    endCaps: (sector.endCaps ?? []).map(edge => edge.map(translatePoint))
+  });
+  const centerline = Array.from({ length: HOOP_EARRING_HALF_SAMPLES * 2 }, (_, index) => (
+    translatePoint(projectAngle(index / (HOOP_EARRING_HALF_SAMPLES * 2) * Math.PI * 2))
+  ));
+  const center = translatePoint({
+    x: 0,
+    y: outerRadius * cosPitch,
+    depth: outerRadius * sinPitch,
+    localDepth: 0
+  });
+
+  return {
+    edgeOn,
+    endCapped,
+    center,
+    centerline,
+    sectors: {
+      back: translateSector(back),
+      front: translateSector(endCapped ? withHoopEndCaps(front) : front)
+    }
+  };
+}
+
+function withHoopEndCaps(sector) {
+  const [left, right] = sector.boundaryEdges;
+
+  return {
+    ...sector,
+    endCaps: [
+      [left[0], right[0]],
+      [left.at(-1), right.at(-1)]
+    ]
+  };
+}
+
+function sampleHoopHalf(projectAngle, depthSign) {
+  return Array.from({ length: HOOP_EARRING_HALF_SAMPLES + 1 }, (_, index) => {
+    const angle = depthSign * index / HOOP_EARRING_HALF_SAMPLES * Math.PI;
+
+    return projectAngle(angle);
+  });
+}
+
+function sampleEdgeOnHoopCenterline(outerRadius, centerlineRadius, cosPitch) {
+  const centerY = outerRadius * cosPitch;
+
+  return Array.from({ length: HOOP_EARRING_HALF_SAMPLES + 1 }, (_, index) => ({
+    x: 0,
+    y: lerp(
+      centerY - centerlineRadius,
+      centerY + centerlineRadius,
+      index / HOOP_EARRING_HALF_SAMPLES
+    ),
+    depth: 0,
+    localDepth: 0
+  }));
+}
+
+function makeHoopRibbonSector(centerline, thickness, endpointNormals) {
+  const halfThickness = thickness / 2;
+  const sections = centerline.map((point, index) => {
+    const previous = centerline[Math.max(0, index - 1)];
+    const next = centerline[Math.min(centerline.length - 1, index + 1)];
+    const localNormal = perpendicularUnit({
+      x: next.x - previous.x,
+      y: next.y - previous.y
+    }, { x: 1, y: 0 });
+    let normal = localNormal;
+
+    if (index === 0 || index === centerline.length - 1) {
+      const shared = endpointNormals[index === 0 ? 0 : 1];
+      normal = shared.x * localNormal.x + shared.y * localNormal.y < 0
+        ? { x: -shared.x, y: -shared.y }
+        : shared;
+    }
+
+    return {
+      left: {
+        x: point.x + normal.x * halfThickness,
+        y: point.y + normal.y * halfThickness
+      },
+      right: {
+        x: point.x - normal.x * halfThickness,
+        y: point.y - normal.y * halfThickness
+      }
+    };
+  });
+  const left = sections.map(section => section.left);
+  const right = sections.map(section => section.right);
+  const points = [...left, ...right.slice().reverse()];
+
+  if (!isValidHoopSector(points)) {
+    return null;
+  }
+
+  return {
+    points,
+    centerline,
+    boundaryEdges: [left, right]
+  };
+}
+
+function perpendicularUnit(vector, fallback) {
+  const length = Math.hypot(vector.x, vector.y);
+
+  return length > POLYGON_UNION_EPSILON
+    ? { x: -vector.y / length, y: vector.x / length }
+    : fallback;
+}
+
+function isValidHoopSector(points) {
+  return points.length >= 4
+    && points.every(point => Number.isFinite(point.x) && Number.isFinite(point.y))
+    && Math.abs(polygonSignedArea(points)) > POLYGON_UNION_EPSILON
+    && !polygonSelfIntersects(points);
 }
 
 function averageProjectedPoints(a, b) {

@@ -429,7 +429,12 @@ const controlGroups = [
       "ferronniereMetalColor",
       "ferronniereGemSize",
       "ferronniereGemColor",
-      "ferronniereGemProtrusion"
+      "ferronniereGemProtrusion",
+      "showHoopEarrings",
+      "hoopEarringSide",
+      "hoopEarringSize",
+      "hoopEarringThickness",
+      "hoopEarringColor"
     ],
     open: true
   },

@@ -11,10 +11,12 @@ import {
   deleteFace,
   importFaceArchive,
   listSavedFaceNames,
+  loadDefaultFaceArchive,
   loadFace,
   loadLastSession,
   saveFace,
-  saveLastSession
+  saveLastSession,
+  seedDefaultFaceArchive
 } from "./storage.js";
 
 const params = {
@@ -1129,10 +1131,15 @@ function render() {
   saveLastSession(params);
 }
 
-const lastSession = loadLastSession();
+let initialFace = loadLastSession();
 
-if (lastSession) {
-  applyParams(lastSession);
+if (!initialFace) {
+  const defaultArchive = await loadDefaultFaceArchive();
+  initialFace = seedDefaultFaceArchive(defaultArchive);
+}
+
+if (initialFace) {
+  applyParams(initialFace);
 }
 
 createFaceIo();

@@ -1,5 +1,6 @@
 const SAVES_KEY = "testface:saves";
 const LAST_SESSION_KEY = "testface:lastSession";
+const DEFAULT_ARCHIVE_URL = new URL("../data/default-face-saves.json", import.meta.url);
 
 function readStore(key) {
   try {
@@ -42,6 +43,43 @@ function normalizeImportedSaves(payload) {
       value && !Array.isArray(value) && typeof value === "object"
     ))
   );
+}
+
+function isSnapshot(value) {
+  return value && !Array.isArray(value) && typeof value === "object";
+}
+
+export async function loadDefaultFaceArchive() {
+  try {
+    const response = await fetch(DEFAULT_ARCHIVE_URL);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return await response.json();
+  } catch (error) {
+    return null;
+  }
+}
+
+export function seedDefaultFaceArchive(payload) {
+  const cachedSession = readStore(LAST_SESSION_KEY);
+  const cachedSaves = readStore(SAVES_KEY);
+
+  if (cachedSession !== null || cachedSaves !== null) {
+    return null;
+  }
+
+  const saves = normalizeImportedSaves(payload);
+  const currentFace = isSnapshot(payload?.currentFace) ? payload.currentFace : null;
+
+  if (!saves || !currentFace) {
+    return null;
+  }
+
+  writeStore(SAVES_KEY, saves);
+  return snapshot(currentFace);
 }
 
 export function listSavedFaceNames() {
